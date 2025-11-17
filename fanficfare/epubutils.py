@@ -20,6 +20,26 @@ from .six import ensure_text, text_type as unicode
 from .six import string_types as basestring
 from io import BytesIO
 
+# from io import StringIO
+# import cProfile, pstats
+# from pstats import SortKey
+# def do_cprofile(func):
+#     def profiled_func(*args, **kwargs):
+#         profile = cProfile.Profile()
+#         try:
+#             profile.enable()
+#             result = func(*args, **kwargs)
+#             profile.disable()
+#             return result
+#         finally:
+#             # profile.sort_stats(SortKey.CUMULATIVE).print_stats(20)
+#             s = StringIO()
+#             sortby = SortKey.CUMULATIVE
+#             ps = pstats.Stats(profile, stream=s).sort_stats(sortby)
+#             ps.print_stats(20)
+#             print(s.getvalue())
+#     return profiled_func
+
 import bs4
 
 def get_dcsource(inputio):
@@ -32,6 +52,51 @@ def get_dcsource_chaptercount(inputio):
 def get_cover_data(inputio):
     # (oldcoverhtmlhref,oldcoverhtmltype,oldcoverhtmldata,oldcoverimghref,oldcoverimgtype,oldcoverimgdata)
     return get_update_data(inputio,getfilecount=True,getsoups=False)[4]
+
+def get_oldcover(epub,relpath,contentdom,item):
+    href=relpath+item.getAttribute("href")
+    src = None
+    try:
+        oldcoverhtmlhref = href
+        oldcoverhtmldata = epub.read(href)
+        oldcoverhtmltype = "application/xhtml+xml"
+        for item in contentdom.getElementsByTagName("item"):
+            if( relpath+item.getAttribute("href") == oldcoverhtmlhref ):
+                oldcoverhtmltype = item.getAttribute("media-type")
+                break
+        soup = make_soup(oldcoverhtmldata.decode("utf-8"))
+        # first img or image tag.
+        imgs = soup.find_all('img')
+        if imgs:
+            src = get_path_part(href)+imgs[0]['src']
+        else:
+            imgs = soup.find_all('image')
+            if imgs:
+                src=get_path_part(href)+imgs[0]['xlink:href']
+
+        if not src:
+            return None
+    except Exception as e:
+        ## Calibre's Polish Book corrupts sub-book covers.
+        logger.warning("Cover (x)html file %s not found"%href)
+        logger.warning("Exception: %s"%(unicode(e)))
+
+    try:
+        # remove all .. and the path part above it, if present.
+        # Mostly for epubs edited by Sigil.
+        src = re.sub(r"([^/]+/\.\./)","",src)
+        #print("epubutils: found pre-existing cover image:%s"%src)
+        oldcoverimghref = src
+        oldcoverimgdata = epub.read(src)
+        for item in contentdom.getElementsByTagName("item"):
+            if( relpath+item.getAttribute("href") == oldcoverimghref ):
+                oldcoverimgtype = item.getAttribute("media-type")
+                break
+        return (oldcoverhtmlhref,oldcoverhtmltype,oldcoverhtmldata,oldcoverimghref,oldcoverimgtype,oldcoverimgdata)
+    except Exception as e:
+        logger.warning("Cover Image %s not found"%src)
+        logger.warning("Exception: %s"%(unicode(e)))
+    return None
 
 def get_update_data(inputio,
                     getfilecount=True,
@@ -61,48 +126,7 @@ def get_update_data(inputio,
     for item in contentdom.getElementsByTagName("reference"):
         if item.getAttribute("type") == "cover":
             # there is a cover (x)html file, save the soup for it.
-            href=relpath+item.getAttribute("href")
-            src = None
-            try:
-                oldcoverhtmlhref = href
-                oldcoverhtmldata = epub.read(href)
-                oldcoverhtmltype = "application/xhtml+xml"
-                for item in contentdom.getElementsByTagName("item"):
-                    if( relpath+item.getAttribute("href") == oldcoverhtmlhref ):
-                        oldcoverhtmltype = item.getAttribute("media-type")
-                        break
-                soup = make_soup(oldcoverhtmldata.decode("utf-8"))
-                # first img or image tag.
-                imgs = soup.find_all('img')
-                if imgs:
-                    src = get_path_part(href)+imgs[0]['src']
-                else:
-                    imgs = soup.find_all('image')
-                    if imgs:
-                        src=get_path_part(href)+imgs[0]['xlink:href']
-
-                if not src:
-                    continue
-            except Exception as e:
-                ## Calibre's Polish Book corrupts sub-book covers.
-                logger.warning("Cover (x)html file %s not found"%href)
-                logger.warning("Exception: %s"%(unicode(e)))
-
-            try:
-                # remove all .. and the path part above it, if present.
-                # Mostly for epubs edited by Sigil.
-                src = re.sub(r"([^/]+/\.\./)","",src)
-                #print("epubutils: found pre-existing cover image:%s"%src)
-                oldcoverimghref = src
-                oldcoverimgdata = epub.read(src)
-                for item in contentdom.getElementsByTagName("item"):
-                    if( relpath+item.getAttribute("href") == oldcoverimghref ):
-                        oldcoverimgtype = item.getAttribute("media-type")
-                        break
-                oldcover = (oldcoverhtmlhref,oldcoverhtmltype,oldcoverhtmldata,oldcoverimghref,oldcoverimgtype,oldcoverimgdata)
-            except Exception as e:
-                logger.warning("Cover Image %s not found"%src)
-                logger.warning("Exception: %s"%(unicode(e)))
+            oldcover = get_oldcover(epub,relpath,contentdom,item)
 
     filecount = 0
     soups = [] # list of xhmtl blocks
@@ -115,8 +139,13 @@ def get_update_data(inputio,
             # First, count the 'chapter' files.  FFF uses file0000.xhtml,
             # but can also update epubs downloaded from Twisting the
             # Hellmouth, which uses chapter0.html.
-            if( item.getAttribute("media-type") == "application/xhtml+xml" ):
+            if item.getAttribute("media-type") == "application/xhtml+xml":
                 href=relpath+item.getAttribute("href")
+                # for epub3--only works on Calibre tagged covers.
+                # Back tracking to find the cover *page* from the
+                # cover *image* isn't currently done.
+                if "calibre:title-page" in item.getAttribute("properties"):
+                    oldcover = get_oldcover(epub,relpath,contentdom,item)
                 #print("---- item href:%s path part: %s"%(href,get_path_part(href)))
                 if re.match(r'.*/log_page(_u\d+)?\.x?html',href):
                     try:
@@ -284,6 +313,7 @@ def get_story_url_from_zip_html(inputio,_is_good_url=None):
                     return ahref
     return None
 
+# @do_cprofile
 def reset_orig_chapters_epub(inputio,outfile):
     inputepub = ZipFile(inputio, 'r') # works equally well with a path or a blob
 
@@ -336,7 +366,9 @@ def reset_orig_chapters_epub(inputio,outfile):
             if re.match(r'.*/file\d+\.xhtml',zf):
                 #logger.debug("zf:%s"%zf)
                 data = data.decode('utf-8')
-                soup = make_soup(data)
+                # should be re-reading an FFF file, single soup should
+                # be good enough and halve processing time.
+                soup = make_soup(data,dblsoup=False)
 
                 chapterorigtitle = None
                 tag = soup.find('meta',{'name':'chapterorigtitle'})
@@ -348,6 +380,7 @@ def reset_orig_chapters_epub(inputio,outfile):
                 tag = soup.find('meta',{'name':'chaptertoctitle'})
                 if tag:
                     chaptertoctitle = tag['content']
+                else:
                     chaptertoctitle = chapterorigtitle
 
                 chaptertitle = None
@@ -449,7 +482,7 @@ def _replace_navxhtml(navxhtmldom,zf,chaptertoctitle):
             # logger.debug("a href=%s label:%s"%(zf,atag.toxml()))
             continue
 
-def make_soup(data):
+def make_soup(data,dblsoup=True):
     '''
     Convenience method for getting a bs4 soup.  bs3 has been removed.
     '''
@@ -464,7 +497,8 @@ def make_soup(data):
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
         soup = bs4.BeautifulSoup(data,'html5lib')
-        soup = bs4.BeautifulSoup(unicode(soup),'html5lib')
+        if dblsoup:
+            soup = bs4.BeautifulSoup(unicode(soup),'html5lib')
 
     for ns in soup.find_all('fff_hide_noscript'):
         ns.name = 'noscript'
