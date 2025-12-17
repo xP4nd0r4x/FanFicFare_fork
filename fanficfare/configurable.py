@@ -95,6 +95,7 @@ titleLabels = {
     'numChapters':'Chapters',
     'numWords':'Words',
     'words_added':'Words Added', # logpage only
+    'marked_new_chapters':'Chapters Marked New',
     'site':'Site',
     'publisher':'Publisher',
     'storyId':'Story ID',
@@ -207,7 +208,6 @@ def get_valid_set_options():
                'remove_empty_p':(None,None,boollist),
                'sort_ships':(None,None,boollist),
                'strip_chapter_numbers':(None,None,boollist),
-               'remove_class_chapter':(None,None,boollist),
                'mark_new_chapters':(None,None,boollist+['latestonly']),
                'titlepage_use_table':(None,None,boollist),
                'decode_emails':(None,None,boollist),
@@ -239,6 +239,8 @@ def get_valid_set_options():
                'skip_author_cover':(ffnet_list,None,boollist),
                'try_shortened_title_urls':(['fanfiction.net'],None,boollist),
 
+               'include_appendices':(['fiction.live'],None,boollist),
+
                'fix_fimf_blockquotes':(['fimfiction.net'],None,boollist),
                'keep_prequel_in_description':(['fimfiction.net'],None,boollist),
                'scrape_bookshelf':(['fimfiction.net'],None,boollist+['legacy']),
@@ -266,6 +268,9 @@ def get_valid_set_options():
                'description_in_chapter':(['literotica.com'],None,boollist),
                'fetch_stories_from_api':(['literotica.com'],None,boollist),
                'order_chapters_by_date':(['literotica.com'],None,boollist),
+               'tags_from_chapters':(['literotica.com'],None,boollist),
+               'dates_from_chapters':(['literotica.com'],None,boollist),
+               'include_chapter_descriptions_in_summary':(['literotica.com'],None,boollist),
 
                'inject_chapter_title':(['asianfanfics.com']+wpc_list,None,boollist),
                'inject_chapter_image':(['asianfanfics.com'],None,boollist),
@@ -343,6 +348,7 @@ def get_valid_scalar_entries():
                  'numChapters',
                  'numWords',
                  'words_added', # logpage only.
+                 'marked_new_chapters',
                  'site',
                  'publisher',
                  'storyId',
@@ -520,6 +526,9 @@ def get_valid_keywords():
                  'description_in_chapter',
                  'order_chapters_by_date',
                  'fetch_stories_from_api',
+                 'tags_from_chapters',
+                 'dates_from_chapters',
+                 'include_chapter_descriptions_in_summary',
                  'inject_chapter_title',
                  'inject_chapter_image',
                  'append_datepublished_to_storyurl',
@@ -605,6 +614,7 @@ def get_valid_keywords():
                  'fix_excess_space',
                  'dedup_order_chapter_list',
                  'ignore_chapter_url_list',
+                 'include_appendices',
                  'dedup_chapter_list',
                  'show_timestamps',
                  'show_nsfw_cover_images',

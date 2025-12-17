@@ -106,7 +106,6 @@ from . import adapter_fireflyfansnet
 from . import adapter_trekfanfictionnet
 from . import adapter_wwwutopiastoriescom
 from . import adapter_sinfuldreamscomunicornfic
-from . import adapter_sinfuldreamscomwhisperedmuse
 from . import adapter_sinfuldreamscomwickedtemptation
 from . import adapter_asianfanficscom
 from . import adapter_mttjustoncenet
@@ -119,7 +118,6 @@ from . import adapter_alternatehistorycom
 from . import adapter_wattpadcom
 from . import adapter_novelonlinefullcom
 from . import adapter_wwwnovelallcom
-from . import adapter_wuxiaworldxyz
 from . import adapter_hentaifoundrycom
 from . import adapter_mugglenetfanfictioncom
 from . import adapter_swiorgru

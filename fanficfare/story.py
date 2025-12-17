@@ -1056,7 +1056,11 @@ class Story(Requestable):
 
     def getChapterCount(self):
         ## returns chapter count adjusted for start-end range.
-        url_chapters = value = int(self.getMetadata("numChapters").replace(',',''))
+        value = 0
+        try:
+            url_chapters = value = int(self.getMetadata("numChapters").replace(',',''))
+        except:
+            logger.warning("Failed to get number of chapters--no chapters recorded by adapter")
         if self.chapter_first:
             value = url_chapters - (int(self.chapter_first) - 1)
         if self.chapter_last:
@@ -1479,9 +1483,11 @@ class Story(Requestable):
         newtempl = string.Template(newpattern)
         toctempl = string.Template(tocpattern)
 
+        marked_new_chapters = 0
         for index, chap in enumerate(self.chapters):
             if chap['new'] or self.getMetadata('newforanthology'):
                 usetempl = newtempl
+                marked_new_chapters += 1
             else:
                 usetempl = templ
             # logger.debug("chap(%s)"%chap)
@@ -1501,6 +1507,8 @@ class Story(Requestable):
             ## chapter['html'] is a string.
             chapter['html'] = self.do_chapter_text_replacements(chapter['html'])
             retval.append(chapter)
+        if marked_new_chapters:
+            self.setMetadata('marked_new_chapters',marked_new_chapters)
         return retval
 
     def do_chapter_text_replacements(self,data):
