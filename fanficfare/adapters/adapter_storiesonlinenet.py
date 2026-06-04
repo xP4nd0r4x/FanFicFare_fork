@@ -400,6 +400,16 @@ class StoriesOnlineNetAdapter(BaseSiteAdapter):
                     series_name = stripHTML(series_soup.find('h1', {'id' : 'ptitle'}))
                     series_name = re.sub(r' . a (series by|collection from).*$','',series_name)
                     # logger.debug("Series name: '%s'" % series_name)
+                    if i == 0:
+                        # find number in series from series page--not
+                        # included in story page anymore.
+                        # ... <a id="t20130r"></a>2 ...
+                        seriesi = series_soup.select_one("a[id='t"+self.story.getMetadata('storyId')+"r']").parent
+                        # logger.debug(seriesi)
+                        try:
+                            i = int(stripHTML(seriesi))
+                        except:
+                            logger.debug("Failed to convert series number(%s)"%seriesi)
                 self.setSeries(series_name, i)
                 # Check if series is in a universe
                 if self.has_universes:
@@ -628,11 +638,13 @@ class StoriesOnlineNetAdapter(BaseSiteAdapter):
 
         chapter_title = None
         if self.getConfig('inject_chapter_title'):
-            h2tag = pagetag.find('h2')
-            if h2tag:
-                # I'm seeing an h1 now, but it's not logged in?
-                # Something's broken...
-                chapter_title = h2tag.extract()
+            if self.num_chapters() > 1:
+                cttag = pagetag.find('h2')
+            else:
+                ## single chapter stories formatted a little differently.
+                cttag = pagetag.find('h1')
+            if cttag:
+                chapter_title = cttag.extract()
 
         # Strip te header section
         tag = pagetag.find('header')
@@ -714,4 +726,5 @@ class StoriesOnlineNetAdapter(BaseSiteAdapter):
         # inject_chapter_title
         if chapter_title:
             chapter_title.name='h3'
+            chapter_title['class']='inject_chapter_title'
             pagetag.insert(0,chapter_title)

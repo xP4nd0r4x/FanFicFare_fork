@@ -132,11 +132,10 @@ class RoyalRoadAdapter(BaseSiteAdapter):
         params['__RequestVerificationToken']=soup.find('input', {'name':'__RequestVerificationToken'})['value']
 
         d = self.post_request(loginUrl, params)
-
         if "Sign in" in d : #Member Account
-            logger.info("Failed to login to URL %s as %s" % (loginUrl,
+            logger.info("Failed to login to URL %s as %s (requires Email not name)" % (loginUrl,
                                                              params['Email']))
-            raise exceptions.FailedToLogin(self.url,params['urealname'])
+            raise exceptions.FailedToLogin(self.url,"Failed to login as %s (RoyalRoad requires Email not name)" % params['Email'])
             return False
         else:
             return True
@@ -290,7 +289,8 @@ class RoyalRoadAdapter(BaseSiteAdapter):
         if img:
             cover_url = img['src']
             # usually URL is for thumbnail. Try expected URL for larger image, if fails fall back to the original URL
-            if self.setCoverImage(url,cover_url.replace('/covers-full/', '/covers-large/'))[0] == "failedtoload":
+            cover_set = self.setCoverImage(url,cover_url.replace('/covers-full/', '/covers-large/'))[0]
+            if not cover_set or cover_set.startswith("failedtoload"):
                 self.setCoverImage(url,cover_url)
                     # some content is show as tables, this will preserve them
 

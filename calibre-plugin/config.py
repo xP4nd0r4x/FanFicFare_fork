@@ -18,7 +18,7 @@ from PyQt5 import QtWidgets as QtGui
 from PyQt5.Qt import (QWidget, QVBoxLayout, QHBoxLayout, QGridLayout, QLabel,
                       QLineEdit, QComboBox, QCheckBox, QPushButton, QTabWidget,
                       QScrollArea, QGroupBox, QButtonGroup, QRadioButton,
-                      Qt)
+                      Qt, QFont)
 
 from calibre.gui2 import dynamic, info_dialog
 from calibre.gui2.complete2 import EditWithComplete
@@ -70,7 +70,8 @@ from calibre_plugins.fanficfare_plugin.prefs import (
 
 from calibre_plugins.fanficfare_plugin.dialogs import (
     UPDATE, UPDATEALWAYS, collision_order, save_collisions, RejectListDialog,
-    EditTextDialog, IniTextDialog, RejectUrlEntry)
+    EditTextDialog, IniTextDialog, RejectUrlEntry, collect_unique_name,
+    default_ini_snippet)
 
 from fanficfare.adapters import getSiteSections, get_section_url
 
@@ -323,6 +324,11 @@ class ConfigWidget(QWidget):
                 # if they've removed everything, reset to default.
                 prefs['personal.ini'] = get_resources('plugin-example.ini')
 
+            # INI Snippets
+            snips = self.personalini_tab.ini_snips
+            if snips:
+                prefs['ini_snips'] = snips
+
             prefs['cal_cols_pass_in'] = self.personalini_tab.cal_cols_pass_in.isChecked()
 
             # Covers tab
@@ -371,6 +377,7 @@ class ConfigWidget(QWidget):
             prefs['suppresstitlesort'] = self.std_columns_tab.suppresstitlesort.isChecked()
             prefs['authorcase'] = self.std_columns_tab.authorcase.isChecked()
             prefs['titlecase'] = self.std_columns_tab.titlecase.isChecked()
+            prefs['seriescase'] = self.std_columns_tab.seriescase.isChecked()
             prefs['setanthologyseries'] = self.std_columns_tab.setanthologyseries.isChecked()
 
             prefs['set_author_url'] =self.std_columns_tab.set_author_url.isChecked()
@@ -760,10 +767,14 @@ class BasicTab(QWidget):
                            tooltip=_("One URL per line:\n<b>http://...,note</b>\n<b>http://...,title by author - note</b>"),
                            rejectreasons=rejecturllist.get_reject_reasons(),
                            reasonslabel=_('Add this reason to all URLs added:'),
+                           accept_storyurls=True,
                            save_size_name='fff:Add Reject List')
         d.exec_()
         if d.result() == d.Accepted:
             rejecturllist.add_text(d.get_plain_text(),d.get_reason_text())
+
+italic = QFont()
+italic.setItalic(True)
 
 class PersonalIniTab(QWidget):
 
@@ -781,6 +792,7 @@ class PersonalIniTab(QWidget):
         self.l.addSpacing(5)
 
         self.personalini = prefs['personal.ini']
+        self.ini_snips = prefs['ini_snips']
 
         groupbox = QGroupBox(_("personal.ini"))
         vert = QVBoxLayout()
@@ -810,6 +822,42 @@ class PersonalIniTab(QWidget):
         label = QLabel(_("View your personal.ini with usernames and passwords removed.  For safely sharing your personal.ini settings with others."))
         label.setWordWrap(True)
         horz.addWidget(label)
+
+        self.l.addSpacing(5)
+
+        groupbox = QGroupBox(_("INI Snippets"))
+        grid = QVBoxLayout()#QGridLayout()
+        groupbox.setLayout(grid)
+        self.l.addWidget(groupbox)
+
+        view_label = _("Manage saved INI snippets that can be applied to individual download sessions.")
+        label = QLabel(view_label)
+        label.setWordWrap(True)
+        grid.addWidget(label)#,0,0,1,-1)
+
+        horz = QHBoxLayout()
+        grid.addLayout(horz)#,1,2,1,2)
+
+        self.ini_snip = QComboBox(self)
+        self.ini_snip.setFixedWidth(300)
+        self.populate_snip_combobox()
+        # self.ini_snip.activated.connect(self.set_ini_snip)
+        horz.addWidget(self.ini_snip)#,1,0,1,2)
+
+        self.add_snippet = QPushButton(_('Add'), self)
+        self.add_snippet.setToolTip(view_label)
+        self.add_snippet.clicked.connect(self.do_add_snippet)
+        horz.addWidget(self.add_snippet)
+
+        self.edit_snippet = QPushButton(_('Edit'), self)
+        self.edit_snippet.setToolTip(view_label)
+        self.edit_snippet.clicked.connect(self.do_edit_snippet)
+        horz.addWidget(self.edit_snippet)
+
+        self.remove_snippet = QPushButton(_('Remove'), self)
+        self.remove_snippet.setToolTip(view_label)
+        self.remove_snippet.clicked.connect(self.do_remove_snippet)
+        horz.addWidget(self.remove_snippet)
 
         self.l.addSpacing(5)
 
@@ -866,6 +914,64 @@ class PersonalIniTab(QWidget):
         self.l.addWidget(label)
 
         self.l.insertStretch(-1)
+
+    def populate_snip_combobox(self):
+        self.ini_snip.clear()
+        if self.ini_snips:
+            self.ini_snip.addItem('Saved Snippets')
+            self.ini_snip.setItemData(self.ini_snip.count()-1, italic, Qt.ItemDataRole.FontRole)
+            self.ini_snip.model().item(self.ini_snip.count()-1).setEnabled(False)
+            for k in sorted(self.ini_snips.keys()):
+                self.ini_snip.addItem(k)
+
+    def do_remove_snippet(self):
+        if self.ini_snip.currentIndex() > 0:
+            snip_name = self.ini_snip.currentText()
+            message="<p>"+_("Remove INI Snippet <i>%s</i> ?")+"</p>"
+            if confirm(message%snip_name,'fff_remove_ini_snippet', self):
+                logger.debug("Delete INI snippet %s"%snip_name)
+                del self.ini_snips[snip_name]
+                self.populate_snip_combobox()
+
+    def do_edit_snippet(self):
+        if self.ini_snip.currentIndex() > 0:
+            snip_name = self.ini_snip.currentText()
+            d = IniTextDialog(self,
+                              self.ini_snips[snip_name]['ini'],
+                              icon=self.windowIcon(),
+                              title=_("Edit INI Snippet"),
+                              label=_("Edit INI Snippet"),
+                              use_find=True,
+                              save_size_name='fff:ini_snippet')
+            # d.select_line(2)
+            d.exec_()
+            if d.result() == d.Accepted:
+                self.ini_snips[snip_name]['ini'] = d.get_plain_text()
+            else:
+                return
+
+    def do_add_snippet(self):
+        d = IniTextDialog(self,
+                          default_ini_snippet,
+                          icon=self.windowIcon(),
+                          title=_("Edit INI Snippet"),
+                          label=_("Edit INI Snippet"),
+                          use_find=True,
+                          save_size_name='fff:ini_snippet')
+        # d.select_line(2)
+        d.exec_()
+        if d.result() == d.Accepted:
+            ini_snippet_text = d.get_plain_text()
+            if ini_snippet_text and ini_snippet_text != default_ini_snippet:
+                new_snip_name = collect_unique_name(self,
+                                                    title=_('Save INI Snippet Name'),
+                                                    desc=_('Enter a name for this INI snippet:'),
+                                                    default_name=_('New INI Snippet'),
+                                                    existing_names=self.ini_snips.keys())
+                if new_snip_name:
+                    logger.debug("Save new INI snippet as (%s)"%new_snip_name)
+                    self.ini_snips[new_snip_name] = {'ini':ini_snippet_text}
+                    self.populate_snip_combobox()
 
     def show_defaults(self):
         IniTextDialog(self,
@@ -1286,41 +1392,7 @@ class OtherTab(QWidget):
 
         label = QLabel("<h3>"+
                        _("Background Job Settings")+
-                       "</h3>"+
-                       "<p>"+
-                       _("These settings change the way FanFicFare handles background processing. "+
-                         "In past, FFF split story downloads into separate processes <i>in the background Job</i>.  "+
-                         "Now, each site will launch separate background Job.")+
-                       "</p>"+
-                       "<p>"+
-                       _("Advantages of new version:")+
-                       "<ul>"+
-                       "<li>"+
-                       _("Download process <i>actually stops</i> when Job is stopped or Calibre quits.  No more <i>open_pages_in_browser</i> calls after you've quit Calibre.")+
-                       "</li>"+
-                       "<li>"+
-                       _("Job Details (aka Job log) updates real time, you can watch downloads in progress.")+
-                       "</li>"+
-                       "<li>"+
-                       _("Job start is quicker by several seconds.")+
-                       "</li>"+
-                       "</ul></p>")
-        label.setWordWrap(True)
-        groupl.addWidget(label)
-
-        label = QLabel("<p>"+
-                       _("Options with the new version:")+
-                       "<ul>"+
-                       "<li>"+
-                       _("Downloads from different sites only done in parallel if 'Split downloads...' is checked.  Uncheck to get a single background Job.")+
-                       "</li>"+
-                       "<li>"+
-                       _("If split, you can get a separate 'Proceed to update library' question for each site, if you unchecked 'Reconsolidate split downloads...'.  "
-                         "You get more 'Proceed' dialogs, but it also means you can update your library sooner for sites that finish quicker.  "
-                         "You can also end up with several 'Proceed' dialogs stacked up waiting for you. ")+
-                       "</li>"+
-                       "</ul>"+
-                       "</p>"
+                       "</h3>"
                        )
         label.setWordWrap(True)
         groupl.addWidget(label)
@@ -1670,6 +1742,11 @@ class StandardColumnsTab(QWidget):
                 self.setanthologyseries.setChecked(prefs['setanthologyseries'])
                 row.append(self.setanthologyseries)
 
+                self.seriescase = QCheckBox(_('Fix Series Case?'),self)
+                self.seriescase.setToolTip(_("If checked, Calibre's routine for correcting the capitalization of title will be applied.")
+                                          +"\n"+_("This effects Calibre metadata only, not FanFicFare metadata in title page."))
+                self.seriescase.setChecked(prefs['seriescase'])
+                row.append(self.seriescase)
         grid = QGridLayout()
         for rownum, row in enumerate(rows):
             for colnum, col in enumerate(row):

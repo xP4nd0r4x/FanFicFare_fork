@@ -66,7 +66,8 @@ class FicwadComSiteAdapter(BaseSiteAdapter):
                                                               params['username']))
         d = self.post_request(loginUrl,params,usecache=False)
 
-        if "Login attempt failed..." in d:
+        if "Login attempt failed..." in d or \
+                '<div id="error">Please enter your username and password.</div>' in d:
             logger.info("Failed to login to URL %s as %s" % (loginUrl,
                                                               params['username']))
             raise exceptions.FailedToLogin(url,params['username'])
@@ -114,7 +115,7 @@ class FicwadComSiteAdapter(BaseSiteAdapter):
         titleh4 = soup.find('div',{'class':'storylist'}).find('h4')
         self.story.setMetadata('title', stripHTML(titleh4.a))
 
-        if 'Deleted story' in self.story.getMetadata('title'):
+        if 'Deleted story' in self.story.getMetadataRaw('title'):
             raise exceptions.StoryDoesNotExist("This story was deleted. %s"%self.url)
 
         # Find authorid and URL from... author url.

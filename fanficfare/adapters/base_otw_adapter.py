@@ -237,7 +237,7 @@ class BaseOTWAdapter(BaseSiteAdapter):
         if 'This work is part of an ongoing challenge and will be revealed soon!' in meta:
             raise exceptions.FailedToDownload('Site says: "This work is part of an ongoing challenge and will be revealed soon!"')
 
-        if '<div class="flash error">Sorry, you don&#39;t have permission to access the page you were trying to reach.</div>' in data:
+        if re.search(r'<div class="flash error">Sorry, you don(\'|&#39;)t have permission to access the page you were trying to reach.</div>', data):
             # note that it's not *actually* a 503 code...
             raise exceptions.FailedToDownload('Site says: "Sorry, you don\'t have permission to access the page you were trying to reach."')
 
@@ -320,7 +320,6 @@ class BaseOTWAdapter(BaseSiteAdapter):
         # break epub update.
         # Find the chapters:
         chapters=soup.find_all('a', href=re.compile(r'/works/'+self.story.getMetadata('storyId')+r"/chapters/\d+$"))
-        self.story.setMetadata('numChapters',len(chapters))
         logger.debug("numChapters: (%s)"%self.story.getMetadata('numChapters'))
         if len(chapters)==1:
             self.add_chapter(self.story.getMetadata('title'),'https://'+self.host+chapters[0]['href'])
@@ -546,7 +545,7 @@ class BaseOTWAdapter(BaseSiteAdapter):
                 ulassoc = headnotes.find('ul', {'class' : "associations"})
                 headnotes = headnotes.find('blockquote', {'class' : "userstuff"})
                 if headnotes != None or ulassoc != None:
-                    append_tag(head_notes_div,'b',"Author's Note:")
+                    append_tag(head_notes_div,'b',self.getConfig("notelabel_authorheadnotes","Author's Note:"))
                 if ulassoc != None:
                     # fix relative links--all examples so far have been.
                     for alink in ulassoc.find_all('a'):
@@ -561,7 +560,7 @@ class BaseOTWAdapter(BaseSiteAdapter):
             chapsumm = chapter_dl_soup.find('div', {'id' : "summary"})
             if chapsumm != None:
                 chapsumm = chapsumm.find('blockquote')
-                append_tag(head_notes_div,'b',"Summary for the Chapter:")
+                append_tag(head_notes_div,'b',self.getConfig("notelabel_chaptersummary","Summary for the Chapter:"))
                 head_notes_div.append(chapsumm)
 
         ## Can appear on every chapter
@@ -570,7 +569,7 @@ class BaseOTWAdapter(BaseSiteAdapter):
             if chapnotes != None:
                 chapnotes = chapnotes.find('blockquote')
                 if chapnotes != None:
-                    append_tag(head_notes_div,'b',"Notes for the Chapter:")
+                    append_tag(head_notes_div,'b',self.getConfig("notelabel_chapterheadnotes","Notes for the Chapter:"))
                     head_notes_div.append(chapnotes)
 
         text = chapter_dl_soup.find('div', {'class' : "userstuff module"})
@@ -585,7 +584,7 @@ class BaseOTWAdapter(BaseSiteAdapter):
             chapfoot = chapter_dl_soup.find('div', {'class' : "end notes module"})
             if chapfoot != None:
                 chapfoot = chapfoot.find('blockquote')
-                append_tag(foot_notes_div,'b',"Notes for the Chapter:")
+                append_tag(foot_notes_div,'b',self.getConfig("notelabel_chapterfootnotes","Notes for the Chapter:"))
                 foot_notes_div.append(chapfoot)
 
         skip_on_update_tags = []
@@ -599,7 +598,7 @@ class BaseOTWAdapter(BaseSiteAdapter):
             if footnotes != None:
                 footnotes = footnotes.find('blockquote')
                 if footnotes:
-                    b = append_tag(foot_notes_div,'b',"Author's Note:")
+                    b = append_tag(foot_notes_div,'b',self.getConfig("notelabel_authorfootnotes","Author's Note:"))
                     skip_on_update_tags.append(b)
                     skip_on_update_tags.append(footnotes)
                     foot_notes_div.append(footnotes)

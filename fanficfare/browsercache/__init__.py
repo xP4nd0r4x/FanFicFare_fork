@@ -22,6 +22,7 @@ from .base_browsercache import BaseBrowserCache, CACHE_DIR_CONFIG
 from .browsercache_simple import SimpleCache
 from .browsercache_blockfile import BlockfileCache
 from .browsercache_firefox2 import FirefoxCache2
+from .browsercache_sqldb import SqldbCache
 
 import logging
 logger = logging.getLogger(__name__)
@@ -34,12 +35,13 @@ class BrowserCache(object):
     def __init__(self, site, getConfig_fn, getConfigList_fn):
         """Constructor for BrowserCache"""
         # import of child classes have to be inside the def to avoid circular import error
-        for browser_cache_class in [SimpleCache, BlockfileCache, FirefoxCache2]:
+        for browser_cache_class in [SimpleCache, BlockfileCache, FirefoxCache2, SqldbCache]:
             self.browser_cache_impl = browser_cache_class.new_browser_cache(site,
                                                                             getConfig_fn,
                                                                             getConfigList_fn)
             if self.browser_cache_impl is not None:
                 break
+            logger.debug("Not using Browser Cache Class %s"%browser_cache_class)
         if self.browser_cache_impl is None:
             raise BrowserCacheException("%s is not set, or directory does not contain a known browser cache type: '%s'"%
                                         (CACHE_DIR_CONFIG,getConfig_fn(CACHE_DIR_CONFIG)))

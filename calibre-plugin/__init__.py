@@ -33,7 +33,7 @@ except NameError:
 from calibre.customize import InterfaceActionBase
 
 # pulled out from FanFicFareBase for saving in prefs.py
-__version__ = (4, 52, 5)
+__version__ = (4, 58, 1)
 
 ## Apparently the name for this class doesn't matter--it was still
 ## 'demo' for the first few versions.
@@ -52,7 +52,7 @@ class FanFicFareBase(InterfaceActionBase):
     supported_platforms = ['windows', 'osx', 'linux']
     author              = 'Jim Miller'
     version             = __version__
-    minimum_calibre_version = (2, 85, 1)
+    minimum_calibre_version = (5, 0, 0)
 
     #: This field defines the GUI plugin class that contains all the code
     #: that actually does something. Its format is module_path:class_name

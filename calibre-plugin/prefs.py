@@ -126,6 +126,7 @@ default_prefs['suppressauthorsort'] = False
 default_prefs['suppresstitlesort'] = False
 default_prefs['authorcase'] = False
 default_prefs['titlecase'] = False
+default_prefs['seriescase'] = False
 default_prefs['setanthologyseries'] = False
 default_prefs['mark'] = False
 default_prefs['mark_success'] = True
@@ -197,10 +198,11 @@ default_prefs['auto_reject_from_email'] = False
 default_prefs['update_existing_only_from_email'] = False
 default_prefs['download_from_email_immediately'] = False
 
-
 #default_prefs['single_proc_jobs'] = True # setting and code removed
 default_prefs['site_split_jobs'] = True
 default_prefs['reconsolidate_jobs'] = True
+
+default_prefs['ini_snips'] = {} # {'name':{'ini':'code'}} allows for 'comment', etc in future.
 
 def set_library_config(library_config,db,setting=PREFS_KEY_SETTINGS):
     db.prefs.set_namespaced(PREFS_NAMESPACE,
@@ -257,7 +259,18 @@ class PrefsFacade():
         if k not in prefs:
             # pulls from default_prefs.defaults automatically if not set
             # in default_prefs
-            return self.default_prefs[k]
+            retval = self.default_prefs[k]
+
+            # Note that for items that are themselves a container like
+            # [] or {} this is a problem if the code assigns into the
+            # default container--it won't be saved to the library and
+            # can appear in other libraries.  Put empty [] / {} in
+            # prefs if found.
+            if isinstance(retval,list):
+                retval = prefs[k] = list()
+            if isinstance(retval,dict):
+                retval = prefs[k] = dict()
+            return retval
         return prefs[k]
 
     def __setitem__(self,k,v):

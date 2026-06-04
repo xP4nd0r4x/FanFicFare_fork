@@ -10,20 +10,6 @@ __docformat__ = 'restructuredtext en'
 import fanficfare.six as six
 from fanficfare.six import ensure_text, string_types, text_type as unicode
 
-# import cProfile
-
-# def do_cprofile(func):
-#     def profiled_func(*args, **kwargs):
-#         profile = cProfile.Profile()
-#         try:
-#             profile.enable()
-#             result = func(*args, **kwargs)
-#             profile.disable()
-#             return result
-#         finally:
-#             profile.print_stats()
-#     return profiled_func
-
 import logging
 logger = logging.getLogger(__name__)
 
@@ -78,11 +64,13 @@ from fanficfare import adapters, exceptions
 
 from fanficfare.epubutils import (
     get_dcsource, get_dcsource_chaptercount, get_story_url_from_epub_html,
-    get_story_url_from_zip_html, reset_orig_chapters_epub, get_cover_data)
+    get_story_url_from_zip_html, reset_orig_chapters_epub, get_cover_img)
 
 from fanficfare.geturls import (
     get_urls_from_page, get_urls_from_text,get_urls_from_imap,
     get_urls_from_mime)
+
+from fanficfare.fff_profile import do_cprofile
 
 from calibre_plugins.fanficfare_plugin.fff_util import (
     get_fff_adapter, get_fff_config, get_fff_personalini,
@@ -111,7 +99,8 @@ from calibre_plugins.fanficfare_plugin.dialogs import (
     LoopProgressDialog, UserPassDialog, AboutDialog, CollectURLDialog,
     RejectListDialog, EmailPassDialog, TOTPDialog,
     save_collisions, question_dialog_all,
-    NotGoingToDownload, RejectUrlEntry, IniTextDialog)
+    RejectUrlEntry, IniTextDialog,
+    EditTextDialog)
 
 # because calibre immediately transforms html into zip and don't want
 # to have an 'if html'.  db.has_format is cool with the case mismatch,
@@ -204,20 +193,6 @@ class FanFicFarePlugin(InterfaceAction):
         self.add_new_dialog = AddNewDialog(self.gui,
                                            prefs,
                                            self.qaction.icon())
-
-    ## Kludgey, yes, but with the real configuration inside the
-    ## library now, how else would a user be able to change this
-    ## setting if it's crashing calibre?
-    def check_macmenuhack(self):
-        try:
-            return self.macmenuhack
-        except:
-            file_path = os.path.join(calibre_config_dir,
-                                     *("plugins/fanficfare_macmenuhack.txt".split('/')))
-            file_path = os.path.abspath(file_path)
-            logger.debug("Plugin %s macmenuhack file_path:%s"%(self.name,file_path))
-            self.macmenuhack = os.access(file_path, os.F_OK)
-            return self.macmenuhack
 
     accepts_drops = True
 
@@ -443,30 +418,38 @@ class FanFicFarePlugin(InterfaceAction):
             self.reject_list_action = self.create_menu_item_ex(self.menu, _('Reject Selected Books'),
                                                                unique_name='Reject Selected Books', image='rotate-right.png',
                                                                triggered=self.reject_list_urls)
-            # self.menu.addSeparator()
 
-            # print("platform.system():%s"%platform.system())
-            # print("platform.mac_ver()[0]:%s"%platform.mac_ver()[0])
-            if not self.check_macmenuhack(): # not platform.mac_ver()[0]: # Some macs crash on these menu items for unknown reasons.
-                self.menu.addSeparator()
-                self.editpersonalini_action = self.create_menu_item_ex(self.menu, _('Edit personal.ini'),
-                                                                       image= 'config.png',
-                                                                       unique_name='Edit personal.ini',
-                                                                       shortcut_name=_('Edit personal.ini'),
-                                                                       triggered=self.editpersonalini)
+            self.add_reject_urls_action = self.create_menu_item_ex(self.menu, _('Add Reject URLs'),
+                                                                   image='rotate-right.png',
+                                                                   unique_name='Add Reject URLs',
+                                                                   shortcut_name=_('Add Reject URLs'),
+                                                                   triggered=self.add_reject_urls)
 
-                self.config_action = self.create_menu_item_ex(self.menu, _('&Configure FanFicFare'),
-                                                              image= 'config.png',
-                                                              unique_name='Configure FanFicFare',
-                                                              shortcut_name=_('Configure FanFicFare'),
-                                                              triggered=do_user_config)
+            self.edit_reject_urls_action = self.create_menu_item_ex(self.menu, _('Edit Reject URLs'),
+                                                                    image='rotate-right.png',
+                                                                    unique_name='Edit Reject URLs',
+                                                                    shortcut_name=_('Edit Reject URLs'),
+                                                                    triggered=self.edit_reject_urls)
 
-                self.about_action = self.create_menu_item_ex(self.menu, _('About FanFicFare'),
-                                                             image= 'images/icon.png',
-                                                             unique_name='About FanFicFare',
-                                                             shortcut_name=_('About FanFicFare'),
-                                                             triggered=self.about)
+            self.menu.addSeparator()
 
+            self.editpersonalini_action = self.create_menu_item_ex(self.menu, _('Edit personal.ini'),
+                                                                   image= 'config.png',
+                                                                   unique_name='Edit personal.ini',
+                                                                   shortcut_name=_('Edit personal.ini'),
+                                                                   triggered=self.editpersonalini)
+
+            self.config_action = self.create_menu_item_ex(self.menu, _('&Configure FanFicFare'),
+                                                          image= 'config.png',
+                                                          unique_name='Configure FanFicFare',
+                                                          shortcut_name=_('Configure FanFicFare'),
+                                                          triggered=do_user_config)
+
+            self.about_action = self.create_menu_item_ex(self.menu, _('About FanFicFare'),
+                                                         image= 'images/icon.png',
+                                                         unique_name='About FanFicFare',
+                                                         shortcut_name=_('About FanFicFare'),
+                                                         triggered=self.about)
             self.gui.keyboard.finalize()
 
     def about(self,checked):
@@ -501,6 +484,38 @@ class FanFicFarePlugin(InterfaceAction):
                 # if they've removed everything, reset to default.
                 prefs['personal.ini'] = get_resources('plugin-example.ini')
             prefs.save_to_db()
+
+    def add_reject_urls(self):
+        url_list = self.get_urls_clip()
+        url_list_text = "\n".join(url_list)
+        logger.debug("\n\n%s\n"%url_list_text)
+        d = EditTextDialog(self.gui,
+                           "http://example.com/story.php?sid=5,"+_("Reason why I rejected it")+"\nhttp://example.com/story.php?sid=6,"+_("Title by Author")+" - "+_("Reason why I rejected it")+"\n"+url_list_text,
+                           # icon=self.windowIcon(),
+                           title=_("FanFicFare"),
+                           label=_("Add Reject URLs. Use: <b>http://...,note</b> or <b>http://...,title by author - note</b><br>Invalid story URLs will be ignored."),
+                           tooltip=_("One URL per line:\n<b>http://...,note</b>\n<b>http://...,title by author - note</b>"),
+                           rejectreasons=rejecturllist.get_reject_reasons(),
+                           reasonslabel=_('Add this reason to all URLs added:'),
+                           accept_storyurls=True,
+                           save_size_name='fff:Add Reject List')
+        d.exec_()
+        if d.result() == d.Accepted:
+            rejecturllist.add_text(d.get_plain_text(),d.get_reason_text())
+
+    def edit_reject_urls(self):
+        with busy_cursor():
+            d = RejectListDialog(self.gui,
+                                 rejecturllist.get_list(),
+                                 rejectreasons=rejecturllist.get_reject_reasons(),
+                                 header=_("Edit Reject URLs List"),
+                                 show_delete=False,
+                                 show_all_reasons=False)
+        d.exec_()
+        if d.result() != d.Accepted:
+            return
+        with busy_cursor():
+            rejecturllist.add(d.get_reject_list(),clear=True)
 
     def create_menu_item_ex(self, parent_menu, menu_text, image=None, tooltip=None,
                            shortcut=None, triggered=None, is_checked=None, shortcut_name=None,
@@ -1141,9 +1156,9 @@ class FanFicFarePlugin(InterfaceAction):
         ## Aug2024 moved site specific search changes to adapters as
         ## classmethod
         regexp = adapters.get_url_search(url)
-        logger.debug(regexp)
+        # logger.debug(regexp)
         retval = self.gui.current_db.search_getting_ids(regexp,None,use_virtual_library=False)
-        logger.debug(retval)
+        # logger.debug(retval)
         return retval
 
     def prep_downloads(self, options, books, merge=False, extrapayload=None):
@@ -1273,7 +1288,7 @@ class FanFicFarePlugin(InterfaceAction):
         # let other exceptions percolate up.
         return adapter.getStoryMetadataOnly(get_cover=False)
 
-    # @do_cprofile
+    @do_cprofile
     def prep_download_loop(self,book,
                            options={'fileform':'epub',
                                     'collision':ADDNEW,
@@ -1307,15 +1322,22 @@ class FanFicFarePlugin(InterfaceAction):
         if self.reject_url(merge,book):
             return
 
+        ## Check existing for SKIP mode.  Again, redundant with below
+        ## for when story URL changes, but also kept here to avoid
+        ## network hit.
+        identicalbooks = self.do_id_search(url)
+        if collision == SKIP and identicalbooks:
+            raise exceptions.NotGoingToDownload(_("Skipping duplicate story."),"list_remove.png")
+
         # Dialogs should prevent this case now.
         if collision in (UPDATE,UPDATEALWAYS) and fileform != 'epub':
-            raise NotGoingToDownload(_("Cannot update non-epub format."))
+            raise exceptions.NotGoingToDownload(_("Cannot update non-epub format."))
 
         if not book['good']:
             # book has already been flagged bad for whatever reason.
             return
 
-        adapter = get_fff_adapter(url,fileform)
+        adapter = get_fff_adapter(url,fileform,ini_snippet=options.get('ini_snippet',None))
         ## chapter range for title_chapter_range_pattern
         adapter.setChaptersRange(book['begin'],book['end'])
 
@@ -1503,7 +1525,7 @@ class FanFicFarePlugin(InterfaceAction):
                     logger.debug("existing found by identifier URL")
 
                 if collision == SKIP and identicalbooks:
-                    raise NotGoingToDownload(_("Skipping duplicate story."),"list_remove.png")
+                    raise exceptions.NotGoingToDownload(_("Skipping duplicate story."),"list_remove.png")
 
                 if len(identicalbooks) > 1:
                     identicalbooks_msg = _("More than one identical book by Identifier URL or title/author(s)--can't tell which book to update/overwrite.")
@@ -1534,7 +1556,7 @@ class FanFicFarePlugin(InterfaceAction):
                         identicalbooks = []
                         collision = book['collision'] = ADDNEW
                     else:
-                        raise NotGoingToDownload(identicalbooks_msg,"minusminus.png")
+                        raise exceptions.NotGoingToDownload(identicalbooks_msg,"minusminus.png")
 
                 ## changed: add new book when CALIBREONLY if none found.
                 if collision in (CALIBREONLY, CALIBREONLYSAVECOL) and not identicalbooks:
@@ -1621,11 +1643,11 @@ class FanFicFarePlugin(InterfaceAction):
                         # returns int adjusted for start-end range.
                         urlchaptercount = story.getChapterCount()
                         if chaptercount == urlchaptercount and collision == UPDATE:
-                            raise NotGoingToDownload(_("Already contains %d chapters.")%chaptercount,'edit-undo.png',showerror=False)
+                            raise exceptions.NotGoingToDownload(_("Already contains %d chapters.")%chaptercount,'edit-undo.png',showerror=False)
                         elif chaptercount > urlchaptercount and not (collision == UPDATEALWAYS and adapter.getConfig('force_update_epub_always')):
-                            raise NotGoingToDownload(_("Existing epub contains %d chapters, web site only has %d. Use Overwrite or force_update_epub_always to force update.") % (chaptercount,urlchaptercount),'dialog_error.png')
+                            raise exceptions.NotGoingToDownload(_("Existing epub contains %d chapters, web site only has %d. Use Overwrite or force_update_epub_always to force update.") % (chaptercount,urlchaptercount),'dialog_error.png')
                         elif chaptercount == 0:
-                            raise NotGoingToDownload(_("FanFicFare doesn't recognize chapters in existing epub, epub is probably from a different source. Use Overwrite to force update."),'dialog_error.png')
+                            raise exceptions.NotGoingToDownload(_("FanFicFare doesn't recognize chapters in existing epub, epub is probably from a different source. Use Overwrite to force update."),'dialog_error.png')
 
                 if collision == OVERWRITE and \
                         db.has_format(book_id,formmapping[fileform],index_is_id=True):
@@ -1642,7 +1664,7 @@ class FanFicFarePlugin(InterfaceAction):
                         # updated does have time, use full timestamps.
                         if (lastupdated.time() == time.min and fileupdated.date() > lastupdated.date()) or \
                                 (lastupdated.time() != time.min and fileupdated > lastupdated):
-                            raise NotGoingToDownload(_("Not Overwriting, web site is not newer."),'edit-undo.png',showerror=False)
+                            raise exceptions.NotGoingToDownload(_("Not Overwriting, web site is not newer."),'edit-undo.png',showerror=False)
 
                 # For update, provide a tmp file copy of the existing epub so
                 # it can't change underneath us.  Now also overwrite for logpage preserve.
@@ -1862,6 +1884,7 @@ class FanFicFarePlugin(InterfaceAction):
         else:
             return None
 
+    @do_cprofile
     def update_books_loop(self,book,db=None,
                           options={'fileform':'epub',
                                    'collision':ADDNEW,
@@ -2133,7 +2156,7 @@ class FanFicFarePlugin(InterfaceAction):
                                  msgl)
 
     def do_status_message(self,message,timeout=0):
-        self.gui.status_bar.show_message(message,timeout)
+        self.gui.status_bar.show_message(message,timeout,show_notification=False)
         try:
             QApplication.processEvents(QEventLoop.ProcessEventsFlag.ExcludeUserInputEvents)
         except:
@@ -2193,30 +2216,45 @@ class FanFicFarePlugin(InterfaceAction):
             ## start with None.  If no subbook covers, don't force one
             ## here.  User can configure FFF to always create/polish a
             ## cover if they want.  This is about when we force it.
-            coverpath = None
+            coverimgpath = None
             coverimgtype = None
+            had_cover = False
 
-            ## first, look for covers inside the subbooks.  Stop at the
-            ## first one, which will be used if there isn't a pre-existing
+            # epubmerge wants a path to cover img on disk
+            def write_image(imgtype,imgdata):
+                tmp = PersistentTemporaryFile(prefix='cover_',
+                                                   suffix='.'+imagetypes[imgtype],
+                                                   dir=options['tdir'])
+                tmp.write(imgdata)
+                tmp.flush()
+                tmp.close()
+                return tmp.name
+
+            ## if prior epub had a cover, we should use it again.
+            if mergebook['calibre_id'] and db.has_format(mergebook['calibre_id'],'EPUB',index_is_id=True):
+                (covertype,coverdata) = get_cover_img(db.format(mergebook['calibre_id'],'EPUB',index_is_id=True,as_file=True))
+                if coverdata:
+                    had_cover = True
+                    coverimgpath = write_image(covertype,coverdata)
+                    coverimgtype = covertype
+                    logger.debug("prior anthology cover found")
+
+            ## look for covers inside the subbooks.  Stop at the first
+            ## one, which will be used if there isn't a pre-existing
             ## calibre cover.
-            if not coverpath:
+            if not coverimgpath:
                 for book in good_list:
-                    coverdata = get_cover_data(book['outfile'])
+                    (covertype,coverdata) = get_cover_img(book['outfile'])
                     if coverdata: # found a cover.
-                        (coverimgtype,coverimgdata) = coverdata[4:6]
-                        # logger.debug('coverimgtype:%s [%s]'%(coverimgtype,imagetypes[coverimgtype]))
-                        tmpcover = PersistentTemporaryFile(suffix='.'+imagetypes[coverimgtype],
-                                                           dir=options['tdir'])
-                        tmpcover.write(coverimgdata)
-                        tmpcover.flush()
-                        tmpcover.close()
-                        coverpath = tmpcover.name
+                        coverimgpath = write_image(covertype,coverdata)
+                        coverimgtype = covertype
+                        logger.debug('from subbook coverimgpath:%s'%coverimgpath)
                         break
-            # logger.debug('coverpath:%s'%coverpath)
 
             ## if updating an existing book and there is at least one
             ## subbook cover:
-            if coverpath and mergebook['calibre_id']:
+            if not had_cover and coverimgpath and mergebook['calibre_id']:
+                logger.debug("anth cover: using cal cover")
                 # Couldn't find a better way to get the cover path.
                 calcoverpath = os.path.join(db.library_path,
                                          db.path(mergebook['calibre_id'], index_is_id=True),
@@ -2224,9 +2262,11 @@ class FanFicFarePlugin(InterfaceAction):
                 ## if there's an existing cover, use it.  Calibre will set
                 ## it for us during lots of different actions anyway.
                 if os.path.exists(calcoverpath):
-                    coverpath = calcoverpath
+                    coverimgpath = calcoverpath
 
-            # logger.debug('coverpath:%s'%coverpath)
+            ## Note that this cover will be replaced if 'inject
+            ## generated' cover is on
+            logger.debug('coverimgpath:%s'%coverimgpath)
             mrg_args = [tmp.name,
                     [ x['outfile'] for x in good_list ],]
             mrg_kwargs = {
@@ -2234,7 +2274,7 @@ class FanFicFarePlugin(InterfaceAction):
                 'titleopt':mergebook['title'],
                 'keepmetadatafiles':True,
                 'source':mergebook['url'],
-                'coverjpgpath':coverpath
+                'coverjpgpath':coverimgpath
                 }
             logger.debug('anthology_merge_keepsingletocs:%s'%
                          mergebook['anthology_merge_keepsingletocs'])
@@ -2267,7 +2307,6 @@ class FanFicFarePlugin(InterfaceAction):
         errorcol_label = self.get_custom_col_label(prefs['errorcol'])
         lastcheckedcol_label = self.get_custom_col_label(prefs['lastcheckedcol'])
 
-        columns = self.gui.library_view.model().custom_columns
         if good_list or prefs['mark'] or (bad_list and errorcol_label) or lastcheckedcol_label:
             LoopProgressDialog(self.gui,
                                good_list+bad_list,
@@ -2499,9 +2538,9 @@ class FanFicFarePlugin(InterfaceAction):
         if prefs['allow_custcol_from_ini']:
             if book['all_metadata'].get('anthology',False):
                 # Anthologies don't need per-story config
-                configuration = get_fff_config(book['url'],options['fileform'])
+                configuration = get_fff_config(book['url'],options['fileform'],ini_snippet=options.get('ini_snippet',None))
             else:
-                configuration = get_fff_adapter(book['url'],options['fileform']).get_configuration()
+                configuration = get_fff_adapter(book['url'],options['fileform'],ini_snippet=options.get('ini_snippet',None)).get_configuration()
             # meta => custcol[,a|n|r|n_anthaver,r_anthaver]
             # cliches=>\#acolumn,r
             for line in configuration.getConfig('custom_columns_settings').splitlines():
@@ -2613,7 +2652,6 @@ class FanFicFarePlugin(InterfaceAction):
                 db.new_api.set_link_for_authors(author_id_to_link_map)
 
         # set series link if found.
-        logger.debug("has link_map:%s"%(hasattr(db.new_api,'set_link_map')))
         ## new_api.set_link_map added in Calibre v6.15
         if hasattr(db.new_api,'set_link_map') and \
                 prefs['set_series_url'] and \
@@ -2622,6 +2660,7 @@ class FanFicFarePlugin(InterfaceAction):
             series = book['series']
             if '[' in series: # a few can have a series w/o number
                 series = series[:series.rindex(' [')]
+            logger.debug("Setting series link:%s"%book['all_metadata']['seriesUrl'])
             db.new_api.set_link_map('series',{series:
                                                   book['all_metadata']['seriesUrl']})
 
@@ -2672,7 +2711,7 @@ class FanFicFarePlugin(InterfaceAction):
                 setting_name = None
                 if prefs['allow_gc_from_ini']:
                     if not configuration: # might already have it from allow_custcol_from_ini
-                        configuration = get_fff_config(book['url'],options['fileform'])
+                        configuration = get_fff_config(book['url'],options['fileform'],ini_snippet=options.get('ini_snippet',None))
 
                     for (template,regexp,setting) in configuration.get_generate_cover_settings():
                         value = Template(template).safe_substitute(book['all_metadata'])
@@ -2811,6 +2850,9 @@ class FanFicFarePlugin(InterfaceAction):
         mi.pubdate = book['pubdate']
         mi.timestamp = book['timestamp']
         mi.comments = book['comments']
+        if prefs['seriescase']:
+            from calibre.ebooks.metadata.sources.base import fixcase
+            book['series'] = fixcase(book['series'])
         mi.series = book['series']
         return mi
 
@@ -3125,7 +3167,7 @@ The previously downloaded book is still in the anthology, but FFF doesn't have t
         book['comments'] += '</div>'
         # logger.debug(book['comments'])
 
-        configuration = get_fff_config(options.get('anthology_url',''),options['fileform'])
+        configuration = get_fff_config(options.get('anthology_url',''),options['fileform'],ini_snippet=options.get('ini_snippet',None))
         if existingbook:
             book['title'] = deftitle = existingbook['title']
             if prefs['anth_comments_newonly']:
@@ -3162,6 +3204,7 @@ The previously downloaded book is still in the anthology, but FFF doesn't have t
 
             if prefs['setanthologyseries'] and book['title'] == series:
                 book['series'] = series+' [0]'
+                book['all_metadata']['seriesUrl'] = options.get('anthology_url','')
 
             # logger.debug("anthology_title_pattern:%s"%configuration.getConfig('anthology_title_pattern'))
             if configuration.getConfig('anthology_title_pattern'):
@@ -3182,7 +3225,9 @@ The previously downloaded book is still in the anthology, but FFF doesn't have t
         s = options.get('frompage',{}).get('status','')
         if s:
             book['all_metadata']['status'] = s
-            book['tags'].append(s)
+            ## status into tags only if in include_subject_tags
+            if 'status' in configuration.getConfigList('include_subject_tags'):
+                book['tags'].append(s)
         book['tags'].extend(configuration.getConfigList('anthology_tags'))
         book['all_metadata']['anthology'] = "true"
 

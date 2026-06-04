@@ -139,27 +139,18 @@ def get_valid_sections():
             allowedsections.append('%s:%s'%(section,f))
     return allowedsections
 
-def get_valid_list_entries():
-    return list(['category',
-                 'genre',
-                 'characters',
-                 'ships',
-                 'warnings',
-                 'extratags',
-                 'author',
-                 'authorId',
-                 'authorUrl',
-                 'lastupdate',
-                 ])
-
 boollist=['true','false']
 base_xenforo2_list=['base_xenforo2forum',
                    'forums.sufficientvelocity.com',
                    'forums.spacebattles.com',
-                   'www.alternatehistory.com',
-                   ]
-base_xenforo_list=base_xenforo2_list+['base_xenforoforum',
                    'forum.questionablequesting.com',
+                   'www.alternatehistory.com',
+                   'althistory.com',
+                    'www.the-sietch.com',
+                   ]
+## no xf1 sites anymore--[base_xenforoforum] kept to not mess with
+## users' existing ini's.
+base_xenforo_list=base_xenforo2_list+['base_xenforoforum',
                    ]
 ## base_otw_adapter sites
 otw_list=['archiveofourown.org',
@@ -184,7 +175,7 @@ def get_valid_set_options():
 
     This is to further restrict keywords to certain sections and/or
     values.  get_valid_keywords() below is the list of allowed
-    keywords.  Any keyword listed here must also be listed there.
+    keywords.  Any keyword not listed here must be listed there.
 
     This is what's used by the code when you save personal.ini in
     plugin that stops and points out possible errors in keyword
@@ -263,7 +254,6 @@ def get_valid_set_options():
                'romancecat_to_characters_ships':(['tthfanfic.org'],None,boollist),
 
                'use_meta_keywords':(['literotica.com'],None,boollist),
-               'chapter_categories_use_all':(['literotica.com'],None,boollist),
                'clean_chapter_titles':(['literotica.com'],None,boollist),
                'description_in_chapter':(['literotica.com'],None,boollist),
                'fetch_stories_from_api':(['literotica.com'],None,boollist),
@@ -288,6 +278,7 @@ def get_valid_set_options():
 
                'calibre_series_meta':(None,['epub'],boollist),
                'force_update_epub_always':(None,['epub'],boollist),
+               'page_progression_direction_rtl':(None,['epub'],boollist),
 
                'windows_eol':(None,['txt'],boollist),
 
@@ -298,6 +289,7 @@ def get_valid_set_options():
                'no_image_processing':(None,['epub','html'],boollist),
                'dedup_img_files':(None,['epub','html'],boollist),
                'convert_inline_images':(None,['epub','html'],boollist),
+               'retry_failedtoload_images':(None,['epub'],boollist),
                'fix_relative_text_links':(None,['epub','html'],boollist),
                'normalize_text_links':(None,['epub','html'],boollist),
                'internalize_text_links':(None,['epub','html'],boollist),
@@ -325,16 +317,176 @@ def get_valid_set_options():
                'use_threadmarks_cover':(base_xenforo2_list,None,boollist),
                'skip_sticky_first_posts':(base_xenforo2_list,None,boollist),
                'include_dice_rolls':(base_xenforo2_list,None,boollist+['svg']),
+               'include_nonauthor_poster':(base_xenforo2_list,None,boollist),
+               'link_embedded_media':(base_xenforo2_list,None,boollist),
                'include_chapter_banner_images':(['wattpad.com'],None,boollist),
                'dateUpdated_method':(['wattpad.com'],None,['modifyDate', 'lastPublishedPart']),
-               'fix_excess_space': (['novelonlinefull.com', 'novelall.com'], ['epub', 'html'], boollist),
+               'fix_excess_space': (['novelonlinefull.com', 'novelall.com'], None, boollist),
                'dedup_order_chapter_list': (['wuxiaworld.xyz'], None, boollist),
                'show_nsfw_cover_images': (['fiction.live'], None, boollist),
                'show_timestamps': (['fiction.live'], None, boollist),
                'prepend_section_titles': (['syosetu.com','kakuyomu.jp'], None, boollist+['firstepisode']),
+               'replace_text_formatting':(['ficbook.net'], None, boollist),
                }
 
     return dict(valdict)
+
+# *known* keywords -- or rather regexps for them.
+def get_valid_keywords():
+    '''
+    Among other things, this list is used by the color highlighting in
+    personal.ini editing in plugin.  Note that entries in
+    get_valid_set_options() do not need to be duplicated here anymore.
+    '''
+    return list(get_valid_set_options().keys())+\
+                ['(in|ex)clude_metadata_(pre|post)',
+                 'add_category_when_multi_category',
+                 'add_genre_when_multi_category',
+                 'adult_ratings',
+                 'allow_unsafe_filename',
+                 'always_overwrite',
+                 'anthology_merge_keepsingletocs',
+                 'anthology_tags',
+                 'anthology_title_pattern',
+                 'background_color',
+                 'browser_cache_age_limit',
+                 'chapter_end',
+                 'chapter_start',
+                 'chapter_title_add_pattern',
+                 'chapter_title_addnew_pattern',
+                 'chapter_title_def_pattern',
+                 'chapter_title_error_mark',
+                 'chapter_title_new_pattern',
+                 'chapter_title_strip_pattern',
+                 'chardet_confidence_limit',
+                 'comma_entries',
+                 'connect_timeout',
+                 'continue_on_chapter_error_try_limit',
+                 'convert_images_to',
+                 'cover_content',
+                 'cover_exclusion_regexp',
+                 'cover_min_size',
+                 'custom_columns_settings',
+                 'dateCreated_format',
+                 'datePublished_format',
+                 'dateUpdated_format',
+                 'datethreadmark_format',
+                 'default_cover_image',
+                 'description_limit',
+                 'epub_version',
+                 'exclude_editor_signature',
+                 'exclude_notes',
+                 'notelabel_authorheadnotes',
+                 'notelabel_chaptersummary',
+                 'notelabel_chapterheadnotes',
+                 'notelabel_chapterfootnotes',
+                 'notelabel_authorfootnotes',
+                 'extra_logpage_entries',
+                 'extra_subject_tags',
+                 'extra_titlepage_entries',
+                 'extra_valid_entries',
+                 'extracategories',
+                 'extracharacters',
+                 'extragenres',
+                 'extraships',
+                 'extratags',
+                 'extrawarnings',
+                 'fail_on_password',
+                 'file_end',
+                 'file_start',
+                 'fileformat',
+                 'find_chapters',
+                 'fix_pseudo_html',
+                 'flaresolverr_proxy_address',
+                 'flaresolverr_proxy_port',
+                 'flaresolverr_proxy_protocol',
+                 'flaresolverr_proxy_timeout',
+                 'flaresolverr_session',
+                 'force_cover_image',
+                 'force_img_self_referer_regexp',
+                 'force_login',
+                 'generate_cover_settings',
+                 'http_proxy',
+                 'https_proxy',
+                 'ignore_chapter_url_list',
+                 'image_max_size',
+                 'include_subject_tags',
+                 'join_string_authorHTML',
+                 'keep_empty_tags',
+                 'keep_html_attrs',
+                 'keep_summary_html',
+                 'logpage_end',
+                 'logpage_entries',
+                 'logpage_entry',
+                 'logpage_start',
+                 'logpage_update_end',
+                 'logpage_update_start',
+                 'make_directories',
+                 'make_linkhtml_entries',
+                 'max_fg_sleep',
+                 'max_fg_sleep_at_downloads',
+                 'max_zalgo',
+                 'min_fg_sleep',
+                 'no_image_processing_regexp',
+                 'nsapa_proxy_address',
+                 'nsapa_proxy_port',
+                 'order_threadmarks_by_date_categories',
+                 'output_css',
+                 'output_filename',
+                 'output_filename_safepattern',
+                 'password',
+                 'post_process_cmd',
+                 'rating_titles',
+                 'reader_posts_per_page',
+                 'remove_tags',
+                 'remove_transparency',
+                 'replace_chapter_text',
+                 'replace_metadata',
+                 'replace_tags_with_spans',
+                 'replace_xbr_with_hr',
+                 'show_spoiler_tags',
+                 'skip_threadmarks_categories',
+                 'slow_down_sleep_time',
+                 'sort_ships_splits',
+                 'strip_chapter_numeral',
+                 'threadmark_category_order',
+                 'threadmarks_per_page',
+                 'title_chapter_range_pattern',
+                 'titlepage_end',
+                 'titlepage_entries',
+                 'titlepage_entry',
+                 'titlepage_no_title_entry',
+                 'titlepage_start',
+                 'titlepage_wide_entry',
+                 'tocpage_end',
+                 'tocpage_entry',
+                 'tocpage_start',
+                 'user_agent',
+                 'username',
+                 'website_encodings',
+                 'wide_titlepage_entries',
+                 'wrap_width',
+                 'zip_filename',
+                 'zip_output'
+                 ]
+
+# *known* entry keywords -- or rather regexps for them.
+def get_valid_entry_keywords():
+    return list(['%s_(label|format)',
+                 '(default_value|include_in|join_string|keep_in_order)_%s',])
+
+def get_valid_list_entries():
+    return list(['category',
+                 'genre',
+                 'characters',
+                 'ships',
+                 'warnings',
+                 'extratags',
+                 'author',
+                 'authorId',
+                 'authorUrl',
+                 'lastupdate',
+                 ])
 
 def get_valid_scalar_entries():
     return list(['series',
@@ -375,260 +527,20 @@ def get_valid_scalar_entries():
 def get_valid_entries():
     return get_valid_list_entries() + get_valid_scalar_entries()
 
-# *known* keywords -- or rather regexps for them.
-def get_valid_keywords():
-    '''
-    Among other things, this list is used by the color highlighting in
-    personal.ini editing in plugin.  Note that it's separate from
-    value checking and most keywords need to be added to both.
-    '''
-    return list(['(in|ex)clude_metadata_(pre|post)',
-                 'add_chapter_numbers',
-                 'add_genre_when_multi_category',
-                 'add_category_when_multi_category',
-                 'adult_ratings',
-                 'allow_unsafe_filename',
-                 'always_overwrite',
-                 'anthology_tags',
-                 'anthology_title_pattern',
-                 'anthology_merge_keepsingletocs',
-                 'background_color',
-                 'bulk_load',
-                 'chapter_end',
-                 'chapter_start',
-                 'chapter_title_strip_pattern',
-                 'chapter_title_def_pattern',
-                 'chapter_title_add_pattern',
-                 'chapter_title_new_pattern',
-                 'chapter_title_addnew_pattern',
-                 'title_chapter_range_pattern',
-                 'mark_new_chapters',
-                 'check_next_chapter',
-                 'meta_from_last_chapter',
-                 'skip_author_cover',
-                 'try_shortened_title_urls',
-                 'collect_series',
-                 'comma_entries',
-                 'connect_timeout',
-                 'convert_images_to',
-                 'cover_content',
-                 'cover_exclusion_regexp',
-                 'custom_columns_settings',
-                 'dateCreated_format',
-                 'datePublished_format',
-                 'dateUpdated_format',
-                 'default_cover_image',
-                 'force_cover_image',
-                 'force_img_self_referer_regexp',
-                 'description_limit',
-                 'do_update_hook',
-                 'use_archived_author',
-                 'use_view_full_work',
-                 'use_workskin',
-                 'always_login',
-                 'exclude_notes',
-                 'remove_authorfootnotes_on_update',
-                 'use_archive_transformativeworks_org',
-                 'use_archiveofourown_gay',
-                 'exclude_editor_signature',
-                 'extra_logpage_entries',
-                 'extra_subject_tags',
-                 'extra_titlepage_entries',
-                 'extra_valid_entries',
-                 'extratags',
-                 'extracategories',
-                 'extragenres',
-                 'extracharacters',
-                 'extraships',
-                 'extrawarnings',
-                 'fail_on_password',
-                 'file_end',
-                 'file_start',
-                 'fileformat',
-                 'find_chapters',
-                 'fix_fimf_blockquotes',
-                 'keep_prequel_in_description',
-                 'scrape_bookshelf',
-                 'include_author_notes',
-                 'force_login',
-                 'generate_cover_settings',
-                 'grayscale_images',
-                 'image_max_size',
-                 'include_images',
-                 'jpg_quality',
-                 'additional_images',
-                 'include_logpage',
-                 'logpage_at_end',
-                 'calibre_series_meta',
-                 'force_update_epub_always',
-                 'include_subject_tags',
-                 'include_titlepage',
-                 'include_tocpage',
-                 'chardet_confidence_limit',
-                 'is_adult',
-                 'join_string_authorHTML',
-                 'keep_style_attr',
-                 'keep_title_attr',
-                 'keep_html_attrs',
-                 'remove_class_chapter',
-                 'replace_tags_with_spans',
-                 'keep_empty_tags',
-                 'remove_tags',
-                 'keep_summary_html',
-                 'logpage_end',
-                 'logpage_entries',
-                 'logpage_entry',
-                 'logpage_start',
-                 'logpage_update_end',
-                 'logpage_update_start',
-                 'make_directories',
-                 'make_firstimage_cover',
-                 'use_old_cover',
-                 'make_linkhtml_entries',
-                 'max_fg_sleep',
-                 'max_fg_sleep_at_downloads',
-                 'min_fg_sleep',
-                 'never_make_cover',
-                 'cover_min_size',
-                 'no_image_processing',
-                 'no_image_processing_regexp',
-                 'dedup_img_files',
-                 'convert_inline_images',
-                 'non_breaking_spaces',
-                 'download_text_version',
-                 'nook_img_fix',
-                 'output_css',
-                 'output_filename',
-                 'output_filename_safepattern',
-                 'password',
-                 'post_process_cmd',
-                 'rating_titles',
-                 'remove_transparency',
-                 'replace_br_with_p',
-                 'replace_chapter_text',
-                 'replace_hr',
-                 'remove_empty_p',
-                 'replace_xbr_with_hr',
-                 'replace_metadata',
-                 'slow_down_sleep_time',
-                 'sort_ships',
-                 'sort_ships_splits',
-                 'strip_chapter_numbers',
-                 'strip_chapter_numeral',
-                 'strip_text_links',
-                 'centeredcat_to_characters',
-                 'pairingcat_to_characters_ships',
-                 'romancecat_to_characters_ships',
-                 'use_meta_keywords',
-                 'chapter_categories_use_all',
-                 'clean_chapter_titles',
-                 'conditionals_use_lists',
-                 'description_in_chapter',
-                 'order_chapters_by_date',
-                 'fetch_stories_from_api',
-                 'tags_from_chapters',
-                 'dates_from_chapters',
-                 'include_chapter_descriptions_in_summary',
-                 'inject_chapter_title',
-                 'inject_chapter_image',
-                 'append_datepublished_to_storyurl',
-                 'auto_sub',
-                 'titlepage_end',
-                 'titlepage_entries',
-                 'titlepage_entry',
-                 'titlepage_no_title_entry',
-                 'titlepage_start',
-                 'titlepage_use_table',
-                 'titlepage_wide_entry',
-                 'tocpage_end',
-                 'tocpage_entry',
-                 'tocpage_start',
-                 'tweak_fg_sleep',
-                 'universe_as_series',
-                 'use_ssl_unverified_context',
-                 'use_ssl_default_seclevelone',
-                 'http_proxy',
-                 'https_proxy',
-                 'use_cloudscraper',
-                 'use_basic_cache',
-                 'use_browser_cache',
-                 'use_browser_cache_only',
-                 'open_pages_in_browser',
-                 'use_nsapa_proxy',
-                 'nsapa_proxy_address',
-                 'nsapa_proxy_port',
-                 'use_flaresolverr_proxy',
-                 'flaresolverr_proxy_address',
-                 'flaresolverr_proxy_port',
-                 'flaresolverr_proxy_protocol',
-                 'flaresolverr_proxy_timeout',
-                 'use_flaresolverr_session',
-                 'flaresolverr_session',
-                 'browser_cache_path',
-                 'browser_cache_age_limit',
-                 'user_agent',
-                 'username',
-                 'website_encodings',
-                 'wide_titlepage_entries',
-                 'windows_eol',
-                 'wrap_width',
-                 'zip_filename',
-                 'zip_output',
-                 'capitalize_forumtags',
-                 'continue_on_chapter_error',
-                 'chapter_title_error_mark',
-                 'continue_on_chapter_error_try_limit',
-                 'minimum_threadmarks',
-                 'first_post_title',
-                 'always_include_first_post',
-                 'always_reload_first_chapter',
-                 'always_use_forumtags',
-                 'use_reader_mode',
-                 'author_avatar_cover',
-                 'reader_posts_per_page',
-                 'threadmarks_per_page',
-                 'remove_spoilers',
-                 'legend_spoilers',
-                 'details_spoilers',
-                 'apocrypha_to_omake',
-                 'skip_threadmarks_categories',
-                 'fix_relative_text_links',
-                 'normalize_text_links',
-                 'internalize_text_links',
-                 'replace_failed_smilies_with_alt_text',
-                 'use_threadmark_wordcounts',
-                 'always_include_first_post_chapters',
-                 'threadmark_category_order',
-                 'order_threadmarks_by_date',
-                 'order_threadmarks_by_date_categories',
-                 'reveal_invisible_text',
-                 'use_threadmarks_description',
-                 'use_threadmarks_status',
-                 'use_threadmarks_cover',
-                 'skip_sticky_first_posts',
-                 'include_dice_rolls',
-                 'include_chapter_banner_images',
-                 'dateUpdated_method',
-                 'datethreadmark_format',
-                 'fix_pseudo_html',
-                 'fix_excess_space',
-                 'dedup_order_chapter_list',
-                 'ignore_chapter_url_list',
-                 'include_appendices',
-                 'dedup_chapter_list',
-                 'show_timestamps',
-                 'show_nsfw_cover_images',
-                 'show_spoiler_tags',
-                 'max_zalgo',
-                 'decode_emails',
-                 'epub_version',
-                 'prepend_section_titles',
-                 ])
-
-# *known* entry keywords -- or rather regexps for them.
-def get_valid_entry_keywords():
-    return list(['%s_(label|format)',
-                 '(default_value|include_in|join_string|keep_in_order)_%s',])
+## Metadata entries that are not allowed to be changed.
+def get_immutable_entries():
+    return list([
+            'authorId',
+            'authorUrl',
+            'storyId',
+            'storyUrl',
+            'langcode',
+            'numChapters',
+            'site',
+            'anthology',
+            'newforanthology',
+            'cover_image',
+            ])
 
 # Moved here for test_config.
 def make_generate_cover_settings(param):
@@ -696,8 +608,12 @@ class Configuration(ConfigParser):
         self.listTypeEntries = get_valid_list_entries()
 
         self.validEntries = get_valid_entries()
+        self.immutableEntries = get_immutable_entries()
 
         self.url_config_set = False
+
+        ## to improve performance, cache config values.
+        self.cached_config = {}
 
     def section_url_names(self,domain,section_url_f):
         ## domain is passed as a method to limit the damage if/when an
@@ -740,6 +656,12 @@ class Configuration(ConfigParser):
     def getValidMetaList(self):
         return self.validEntries + self.getConfigList("extra_valid_entries")
 
+    def isImmutableMetaEntry(self, key):
+        return key in self.getImmutableMetaList()
+
+    def getImmutableMetaList(self):
+        return self.immutableEntries
+
     # used by adapters & writers, non-convention naming style
     def hasConfig(self, key):
         return self.has_config(self.sectionslist, key)
@@ -770,6 +692,10 @@ class Configuration(ConfigParser):
         return self.get_config(self.sectionslist,key,default)
 
     def get_config(self, sections, key, default=""):
+        try:
+            return self.cached_config[(tuple(sections),key)]
+        except KeyError as ke:
+            pass
         val = default
 
         val_files = []
@@ -814,11 +740,13 @@ class Configuration(ConfigParser):
             except (configparser.NoOptionError, configparser.NoSectionError) as e:
                 pass
 
+        self.cached_config[(tuple(sections),key)] = val
         return val
 
     # split and strip each.
     def get_config_list(self, sections, key, default=[]):
-        vlist = re.split(r'(?<!\\),',self.get_config(sections,key)) # don't split on \,
+        ## "%s" to make false > "false"  Rare corner case, probably accidental
+        vlist = re.split(r'(?<!\\),',"%s"%self.get_config(sections,key)) # don't split on \,
         vlist = [x for x in [ v.strip().replace(r'\,',',') for v in vlist ] if x !='']
         if not vlist:
             return default
@@ -1206,6 +1134,9 @@ class Configurable(object):
 
     def isValidMetaEntry(self, key):
         return self.configuration.isValidMetaEntry(key)
+
+    def isImmutableMetaEntry(self, key):
+        return self.configuration.isImmutableMetaEntry(key)
 
     def getValidMetaList(self):
         return self.configuration.getValidMetaList()

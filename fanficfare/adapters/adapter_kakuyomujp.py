@@ -163,7 +163,7 @@ class KakuyomuJpAdapter(BaseSiteAdapter):
         titles = []
         nestingLevel = 0
         newSection = False
-        for tocNodeRef in info[workKey]['tableOfContents']:
+        for tocNodeRef in info[workKey]['tableOfContentsV2']:
             tocNode = info[tocNodeRef['__ref']]
 
             if tocNode['chapter'] is not None:
@@ -196,8 +196,6 @@ class KakuyomuJpAdapter(BaseSiteAdapter):
 
                     self.add_chapter(epTitle, epUrl)
                 newSection = False
-
-        self.story.setMetadata('numChapters', numEpisodes)
 
         logger.debug("Story: <%s>", self.story)
         return

@@ -27,8 +27,7 @@ import pprint
 import string
 import os, sys, platform
 
-
-version="4.52.5"
+version="4.58.1"
 os.environ['CURRENT_VERSION_ID']=version
 
 global_cache = 'global_cache'
@@ -50,6 +49,8 @@ from fanficfare.epubutils import (
 from fanficfare.geturls import get_urls_from_page, get_urls_from_imap
 from fanficfare.six.moves import configparser
 from fanficfare.six import text_type as unicode
+
+from fanficfare.fff_profile import do_cprofile
 
 def write_story(config, adapter, writeformat,
                 metaonly=False, nooutput=False,
@@ -346,6 +347,7 @@ def main(argv=None,
     dispatch(options, urls, passed_defaultsini, passed_personalini, warn, fail)
 
 # make rest a function and loop on it.
+@do_cprofile
 def do_download(arg,
                 options,
                 passed_defaultsini,
@@ -370,8 +372,13 @@ def do_download(arg,
                 return
             print('Updating %s, URL: %s' % (arg, url))
             output_filename = arg
-        except Exception:
-            # if there's an error reading the update file, maybe it's a URL?
+        except Exception as e:
+            # if there's an error reading the update file:
+            if os.path.isfile(arg):
+                fail('Failed to read file (%s) for update. Exception: (%s)'%(arg,e))
+                return
+            logger.debug("File not found, treating (%s) as a URL"%arg)
+            # Maybe it's a URL?
             # we'll look for an existing outputfile down below.
             url = arg
     else:

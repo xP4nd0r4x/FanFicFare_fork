@@ -148,3 +148,12 @@ class HTTPErrorFFF(Exception):
 class BrowserCacheException(Exception):
     pass
 
+class NotGoingToDownload(Exception):
+    def __init__(self,error,icon='dialog_error.png',showerror=True):
+        self.error=error
+        self.icon=icon
+        self.showerror=showerror
+
+    def __str__(self):
+        return self.error
+

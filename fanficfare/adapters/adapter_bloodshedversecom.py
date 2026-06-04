@@ -157,9 +157,6 @@ class BloodshedverseComAdapter(BaseSiteAdapter):
 
                         self.story.addToList('warnings', warning)
 
-                elif key == 'Chapters':
-                    self.story.setMetadata('numChapters', int(value))
-
                 elif key == 'Words':
                     # Apparently only numChapters need to be an integer for
                     # some strange reason. Remove possible ',' characters as to
@@ -174,7 +171,7 @@ class BloodshedverseComAdapter(BaseSiteAdapter):
                     # ugly %p(am/pm) hack moved into makeDate so other sites can use it.
                     self.story.setMetadata('dateUpdated', date)
 
-        if self.story.getMetadata('rating') == 'NC-17' and not (self.is_adult or self.getConfig('is_adult')):
+        if self.story.getMetadataRaw('rating') == 'NC-17' and not (self.is_adult or self.getConfig('is_adult')):
             raise exceptions.AdultCheckRequired(self.url)
 
     def getChapterText(self, url):

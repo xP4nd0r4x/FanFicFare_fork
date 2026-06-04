@@ -20,25 +20,9 @@ from .six import ensure_text, text_type as unicode
 from .six import string_types as basestring
 from io import BytesIO
 
-# from io import StringIO
-# import cProfile, pstats
-# from pstats import SortKey
-# def do_cprofile(func):
-#     def profiled_func(*args, **kwargs):
-#         profile = cProfile.Profile()
-#         try:
-#             profile.enable()
-#             result = func(*args, **kwargs)
-#             profile.disable()
-#             return result
-#         finally:
-#             # profile.sort_stats(SortKey.CUMULATIVE).print_stats(20)
-#             s = StringIO()
-#             sortby = SortKey.CUMULATIVE
-#             ps = pstats.Stats(profile, stream=s).sort_stats(sortby)
-#             ps.print_stats(20)
-#             print(s.getvalue())
-#     return profiled_func
+FONT_EXTS = ('ttf','otf','woff','woff2')
+
+from fanficfare.fff_profile import do_cprofile
 
 import bs4
 
@@ -49,9 +33,52 @@ def get_dcsource_chaptercount(inputio):
     ## getsoups=True to check for continue_on_chapter_error chapters.
     return get_update_data(inputio,getfilecount=True,getsoups=True)[:2] # (source,filecount)
 
-def get_cover_data(inputio):
-    # (oldcoverhtmlhref,oldcoverhtmltype,oldcoverhtmldata,oldcoverimghref,oldcoverimgtype,oldcoverimgdata)
-    return get_update_data(inputio,getfilecount=True,getsoups=False)[4]
+## only finds and returns cover image type and data, not cover page.
+## should work on any epub.  Added for anthology cover issues.
+def get_cover_img(inputio):
+    # (oldcoverimgtype,oldcoverimgdata)
+    epub = ZipFile(inputio, 'r') # works equally well with inputio as a path or a blob
+
+    ## Find the .opf file.
+    container = epub.read("META-INF/container.xml")
+    containerdom = parseString(container)
+    rootfilenodelist = containerdom.getElementsByTagName("rootfile")
+    rootfilename = rootfilenodelist[0].getAttribute("full-path")
+
+    contentdom = parseString(epub.read(rootfilename))
+    firstmetadom = contentdom.getElementsByTagName("metadata")[0]
+
+    ## Save the path to the .opf file--hrefs inside it are relative to it.
+    relpath = get_path_part(rootfilename)
+    # logger.debug("relpath:%s"%relpath)
+
+#     <meta name="cover" content="cover"/>
+
+    coverid = None
+    covertype = None
+    coverdata = None
+
+    for metatag in firstmetadom.getElementsByTagName("meta"):
+        if metatag.getAttribute('name') == 'cover':
+            coverid = metatag.getAttribute('content')
+            # logger.debug("coverid:%s"%coverid)
+            break
+    if coverid:
+        for item in contentdom.getElementsByTagName("item"):
+            if item.getAttribute('id') == coverid:
+                coverhref = relpath+item.getAttribute("href")
+                ## remove .. and the part it obviates
+                coverhref = re.sub(r"([^/]+/\.\./)","",coverhref)
+                covertype = item.getAttribute('media-type')
+                # logger.debug("covertype:%s coverhref:%s"%(covertype,coverhref))
+                try:
+                    coverdata = epub.read(coverhref)
+                    # logger.debug("coverdatalen:%s"%len(coverdata))
+                except Exception as e:
+                    logger.info("Failed to read cover (%s): %s"%(coverhref,e))
+                    covertype, coverdata = None, None
+                break
+    return covertype, coverdata
 
 def get_oldcover(epub,relpath,contentdom,item):
     href=relpath+item.getAttribute("href")
@@ -131,16 +158,16 @@ def get_update_data(inputio,
     filecount = 0
     soups = [] # list of xhmtl blocks
     urlsoups = {} # map of xhtml blocks by url
-    images = {} # dict() longdesc->data
+    images = {} # dict() longdesc->(epubsrc, data)
     datamaps = defaultdict(dict) # map of data maps by url
     if getfilecount:
         # spin through the manifest--only place there are item tags.
         for item in contentdom.getElementsByTagName("item"):
+            href=relpath+item.getAttribute("href")
             # First, count the 'chapter' files.  FFF uses file0000.xhtml,
             # but can also update epubs downloaded from Twisting the
             # Hellmouth, which uses chapter0.html.
             if item.getAttribute("media-type") == "application/xhtml+xml":
-                href=relpath+item.getAttribute("href")
                 # for epub3--only works on Calibre tagged covers.
                 # Back tracking to find the cover *page* from the
                 # cover *image* isn't currently done.
@@ -156,28 +183,65 @@ def get_update_data(inputio,
                     # (_u\d+)? is from calibre convert naming files
                     # 3/OEBPS/file0005_u3.xhtml etc.
                     if getsoups:
-                        soup = make_soup(epub.read(href).decode("utf-8"))
+                        try:
+                            soup = make_soup(epub.read(href).decode("utf-8"))
+                        except:
+                            logger.warning("Listed chapter file(%s) not found in epub, skipping."%href)
+                            continue
                         for img in soup.find_all('img'):
                             newsrc=''
                             longdesc=''
                             ## skip <img src="data:image..."
-                            if img.has_attr('src') and not img['src'].startswith('data:image'):
+                            ## NOTE - also only applying this processing if img has a longdesc (aka origurl)
+                            ## in past, would error out entirely.
+                            if img.has_attr('src') and img.has_attr('longdesc') and not img['src'].startswith('data:image') and not img['src'].startswith('failedtoload'):
                                 try:
                                     newsrc=get_path_part(href)+img['src']
                                     # remove all .. and the path part above it, if present.
                                     # Mostly for epubs edited by Sigil.
                                     newsrc = re.sub(r"([^/]+/\.\./)","",newsrc)
-                                    longdesc=img.get('longdesc', newsrc)
-                                    img['src'] = img.get('longdesc', newsrc)
-                                    data = epub.read(newsrc)
-                                    images[longdesc] = data
+                                    longdesc=img['longdesc']
+                                    img['src'] = img['longdesc']
+                                    # logger.debug("html -->img:%s"%longdesc)
+                                    if longdesc not in images:
+                                        data = epub.read(newsrc)
+                                        images[longdesc] = (newsrc, data)
+                                        # logger.debug("-->html Add oldimages:%s"%newsrc)
                                 except Exception as e:
-                                    # don't report u'OEBPS/failedtoload',
-                                    # it indicates a failed download
-                                    # originally.
-                                    if newsrc != u'OEBPS/failedtoload':
+                                    logger.warning("Image %s not found!\n(originally:%s)"%(newsrc,longdesc))
+                                    # logger.warning("Exception: %s"%(unicode(e)),exc_info=True)
+                        ## Inline and embedded CSS url() images
+                        for inline in soup.select('*[style]') + soup.select('style'):
+                            style = ''
+                            if inline.name == 'style':
+                                style = inline.string
+                            if inline.has_attr('style'):
+                                style = inline['style']
+                            if 'url(' in style:
+                                ## the pattern will also accept mismatched '/", which is broken CSS.
+                                for style_url in re.findall(r'url\([\'"]?(.*?)[\'"]?\)', style):
+                                    if style_url.startswith('failedtoload'):
+                                        continue
+                                    if style_url.rsplit('.')[-1].lower() in FONT_EXTS:
+                                        logger.debug("Skipping sheet style url(%s), assumed font"%style_url)
+                                        continue
+                                    logger.debug("Updating inline/embedded style url(%s)"%style_url)
+                                    newsrc=''
+                                    longdesc=''
+                                    try:
+                                        newsrc=get_path_part(href)+style_url
+                                        # remove all .. and the path part above it, if present.
+                                        # Mostly for epubs edited by Sigil.
+                                        newsrc = re.sub(r"([^/]+/\.\./)","",newsrc)
+                                        # logger.debug("htmlcss -->img:%s"%href)
+                                        if style_url not in images:
+                                            data = epub.read(newsrc)
+                                            images[style_url] = (newsrc, data)
+                                            # logger.debug("-->htmlcss Add oldimages:%s"%newsrc)
+                                            # logger.debug("\nimg %s len(%s)\n"%(newsrc,len(data)))
+                                    except Exception as e:
                                         logger.warning("Image %s not found!\n(originally:%s)"%(newsrc,longdesc))
-                                        logger.warning("Exception: %s"%(unicode(e)),exc_info=True)
+
                         bodysoup = soup.find('body')
                         # ffdl epubs have chapter title h3
                         h3 = bodysoup.find('h3')
@@ -223,7 +287,62 @@ def get_update_data(inputio,
                         soups.append(bodysoup)
 
                     filecount+=1
-
+            ## CSS files -- only process when also getting soups for
+            ## update.  output_css is configured, but 'extra_css' like
+            ## otw workskin might vary.
+            if item.getAttribute("media-type") == "text/css" and getsoups:
+                try:
+                    style = epub.read(href).decode("utf-8")
+                except:
+                    logger.warning("Listed CSS file(%s) not found in epub, skipping."%href)
+                    continue
+                if 'url(' in style:
+                    # logger.debug("%s CSS url:%s"%(href,style))
+                    ## the pattern will also accept mismatched '/", which is broken CSS.
+                    for style_url in re.findall(r'url\([\'"]?(.*?)[\'"]?\)', style):
+                        if style_url.rsplit('.')[-1].lower() in FONT_EXTS:
+                            logger.debug("Skipping sheet style url(%s), assumed font"%style_url)
+                            continue
+                        logger.debug("Updating sheet style url(%s)"%style_url)
+                        newsrc=''
+                        longdesc=''
+                        try:
+                            newsrc=get_path_part(href)+style_url
+                            # remove all .. and the path part above it, if present.
+                            # Mostly for epubs edited by Sigil.
+                            newsrc = re.sub(r"([^/]+/\.\./)","",newsrc)
+                            # logger.debug("css -->img:%s"%href)
+                            if style_url not in images:
+                                data = epub.read(newsrc)
+                                images[style_url] = (newsrc, data)
+                                # logger.debug("css -->Add oldimages:%s"%newsrc)
+                                # logger.debug("\nimg %s len(%s)\n"%(newsrc,len(data)))
+                        except Exception as e:
+                            logger.warning("Image %s not found!\n(originally:%s)"%(newsrc,longdesc))
+        ## Find all images in file.  Some redundancy with above
+        ## finding images in chapters and css, but also keeps images
+        ## in the epub that aren't referenced by removed chapters in
+        ## case of deliberate chapter reload.  Images will still be
+        ## discarded on epub write if not used.
+        ## Done on a second spin through manifest to ensure chapter
+        ## <img longdesc imgurls get registered first.
+        for item in contentdom.getElementsByTagName("item"):
+            href=relpath+item.getAttribute("href")
+            if item.getAttribute("media-type").startswith("image/") and getsoups:
+                if oldcover and href == oldcover[3]:
+                    # don't include cover image, already handled by
+                    # oldcover code and can trip de-dup unintentionally.
+                    continue
+                img_url = href.replace("OEBPS/","")
+                # logger.debug("-->img img:%s"%img_url)
+                if img_url not in images:
+                    try:
+                        data = epub.read(href)
+                    except:
+                        logger.warning("Listed image file(%s) not found in epub, skipping."%href)
+                        continue
+                    # logger.debug("-->img Add oldimages:%s"%href)
+                    images[img_url] = (img_url, data)
     try:
         calibrebookmark = epub.read("META-INF/calibre_bookmarks.txt")
     except:
@@ -313,7 +432,7 @@ def get_story_url_from_zip_html(inputio,_is_good_url=None):
                     return ahref
     return None
 
-# @do_cprofile
+@do_cprofile
 def reset_orig_chapters_epub(inputio,outfile):
     inputepub = ZipFile(inputio, 'r') # works equally well with a path or a blob
 
@@ -366,28 +485,50 @@ def reset_orig_chapters_epub(inputio,outfile):
             if re.match(r'.*/file\d+\.xhtml',zf):
                 #logger.debug("zf:%s"%zf)
                 data = data.decode('utf-8')
-                # should be re-reading an FFF file, single soup should
-                # be good enough and halve processing time.
-                soup = make_soup(data,dblsoup=False)
 
-                chapterorigtitle = None
-                tag = soup.find('meta',{'name':'chapterorigtitle'})
-                if tag:
-                    chapterorigtitle = tag['content']
+                ## For higher performance checking, don't need to
+                ## make_soup if not different
+                header = data[0:data.find("</head>")]
+                '''
+                <meta name="chapterorigtitle" content="8. Chapter 7" />
+                <meta name="chaptertoctitle" content="8. Chapter 7" />
+                <meta name="chaptertitle" content="8. (new) Chapter 7" />
+                '''
+                # logger.debug(header)
+                def get_meta_content(n,d):
+                    m = re.match(r'.*<meta( name="%s"| content="(?P<found>[^"]+))+".*'%n,d,re.DOTALL)
+                    if m:
+                        # logger.debug("%s -> %s"%(n,m.groupdict().get('found',None)))
+                        return m.groupdict().get('found',None)
 
-                # toctitle is separate for add_chapter_numbers:toconly users.
-                chaptertoctitle = None
-                tag = soup.find('meta',{'name':'chaptertoctitle'})
-                if tag:
-                    chaptertoctitle = tag['content']
-                else:
-                    chaptertoctitle = chapterorigtitle
+                chapterorigtitle = get_meta_content('chapterorigtitle',header)
+                chaptertoctitle =get_meta_content('chaptertoctitle',header)
+                chaptertitle = get_meta_content('chaptertitle',header)
 
-                chaptertitle = None
-                tag = soup.find('meta',{'name':'chaptertitle'})
-                if tag:
-                    chaptertitle = tag['content']
-                    chaptertitle_tag = tag
+                if not (chapterorigtitle and chaptertoctitle and chaptertitle \
+                            and chapterorigtitle == chaptertitle):
+                    # should be re-reading an FFF file, single soup should
+                    # be good enough and halve processing time.
+                    soup = make_soup(data,dblsoup=False)
+
+                    chapterorigtitle = None
+                    tag = soup.find('meta',{'name':'chapterorigtitle'})
+                    if tag:
+                        chapterorigtitle = tag['content']
+
+                    # toctitle is separate for add_chapter_numbers:toconly users.
+                    chaptertoctitle = None
+                    tag = soup.find('meta',{'name':'chaptertoctitle'})
+                    if tag:
+                        chaptertoctitle = tag['content']
+                    else:
+                        chaptertoctitle = chapterorigtitle
+
+                    chaptertitle = None
+                    tag = soup.find('meta',{'name':'chaptertitle'})
+                    if tag:
+                        chaptertitle = tag['content']
+                        chaptertitle_tag = tag
 
                 #logger.debug("chaptertitle:(%s) chapterorigtitle:(%s)"%(chaptertitle, chapterorigtitle))
                 if chaptertitle and chapterorigtitle and chapterorigtitle != chaptertitle:

@@ -149,20 +149,20 @@ Some more longer description.  "I suck at summaries!"  "Better than it sounds!" 
 
         # greater than 10, no language or series.
         if idnum < 10:
-            ## non-English was changing series sort order which
-            ## confuses me more often than I test other langs.
-            # langs = {
-            #     0:"English",
-            #     1:"Russian",
-            #     2:"French",
-            #     3:"German",
-            #     }
-            # self.story.setMetadata('language',langs[idnum%len(langs)])
             self.setSeries('The Great Test',idnum)
             self.story.setMetadata('seriesUrl','http://'+self.getSiteDomain()+'/seriesid=1')
         elif idnum < 20:
             self.setSeries('魔法少女まどか★マギカ',idnum)
             self.story.setMetadata('seriesUrl','http://'+self.getSiteDomain()+'/seriesid=1')
+        elif idnum < 30:
+            langs = {
+                0:"English",
+                1:"Russian",
+                2:"French",
+                3:"German",
+                }
+            self.story.setMetadata('language',langs[idnum%len(langs)])
+
         if idnum == 0:
             self.setSeries("A Nook Hyphen Test "+self.story.getMetadata('dateCreated'),idnum)
             self.story.setMetadata('seriesUrl','http://'+self.getSiteDomain()+'/seriesid=0')
@@ -335,8 +335,11 @@ Some more longer description.  "I suck at summaries!"  "Better than it sounds!" 
             text=u'''
 <div>
 <h3>Prologue</h3>
+<div class='leadpara'>
 <p>This is a fake adapter for testing purposes.  Different sid's will give different errors:</p>
 <p>sid&gt;=1000 will use custom test story data from your configuration(personal.ini)</p>
+</div>
+<div class='failids'>
 <p>Hard coded ids:</p>
 <p>http://test1.com?sid=664 - Crazy string title</p>
 <p>http://test1.com?sid=665, 711-720 - raises AdultCheckRequired</p>
@@ -352,6 +355,7 @@ Some more longer description.  "I suck at summaries!"  "Better than it sounds!" 
 <p>http://test1.com?sid=700 - 710 - Succeeds, changes sid to 80X</p>
 <p>http://test1.com?sid=0 - Succeeds, generates some text specifically for testing hyphenation problems with Nook STR/STRwG</p>
 <p>Odd sid's will be In-Progress, evens complete.  sid&lt;10 will be assigned one of four languages and included in a series.</p>
+</div>
 </div>
 '''
         elif self.story.getMetadata('storyId') == '0':
@@ -411,7 +415,13 @@ Some more longer description.  "I suck at summaries!"  "Better than it sounds!" 
 
         else:
             if self.story.getMetadata('storyId') == '92':
-                imgtext='<a href="http://code.google.com/p/fanficdownloader/wiki/FanFictionDownLoaderPluginWithReadingList" title="Tilt-a-Whirl by Jim &amp; Sarah, on Flickr"><img src="http://i.imgur.com/bo8eD.png"></a>'
+                imgtext='''
+<p  style="background-image: url('https://picsum.photos.invalid/20/10')">Lorem ipsum dolor sit amet, consectetur adipisicing elit, sed do eiusmod tempor</p>
+<p><a href="http://code.google.com/p/fanficdownloader/wiki/FanFictionDownLoaderPluginWithReadingList" title="Tilt-a-Whirl"><img src="http://i.imgur.com/bo8eD.png"></a></p>
+<p><img src="https://picsum.photos.invalid/2000/1500"></p>
+<p><img src='https://picsum.photos/1000/750'></p>
+<p><img src='https://picsum.photos/500/375'></p>
+'''
             else:
                 imgtext='img goes here when sid=92'
             text=u'''
@@ -432,7 +442,9 @@ Don't&#8212e;ver&#8212d;o&#8212;that&#8212a;gain, &#27861; &#xE9;
 <hr>
 horizontal rules
 <hr size=1 noshade>
+<div class="loremipsum">
 <p>"Lorem ipsum dolor sit amet", consectetur adipisicing elit, sed do eiusmod tempor incididunt ut labore--et dolore magna aliqua. 'Ut enim ad minim veniam', quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat. Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu fugiat nulla pariatur. Excepteur sint occaecat cupidatat non proident, sunt in culpa qui officia deserunt mollit anim id est laborum.</p>
+</div>
 <br>
 <br>
 Lorem ipsum dolor sit amet, consectetur adipisicing elit, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat. Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu fugiat nulla pariatur. Excepteur sint occaecat cupidatat non proident, sunt in culpa qui officia deserunt mollit anim id est laborum.<br/>
@@ -444,7 +456,6 @@ Lorem ipsum dolor sit amet, consectetur adipisicing elit, sed do eiusmod tempor 
 <br/>  <br/>
 <br/>
 "Lorem ipsum dolor sit amet", consectetur adipisicing elit, sed do eiusmod tempor incididunt ut labore--et dolore magna aliqua. 'Ut enim ad minim veniam', quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat. Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu fugiat nulla pariatur. Excepteur sint occaecat cupidatat non proident, sunt in culpa qui officia deserunt mollit anim id est laborum.<br>
-<p>Lorem ipsum dolor sit amet, consectetur adipisicing elit, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat. Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu fugiat nulla pariatur. Excepteur sint occaecat cupidatat non proident, sunt in culpa qui officia deserunt mollit anim id est laborum.</p>
 </div>
 '''%imgtext
         soup = self.make_soup(text)
@@ -480,6 +491,7 @@ Lorem ipsum dolor sit amet, consectetur adipisicing elit, sed do eiusmod tempor 
             desc = '<div><p>The Great Test Series of '+self.getSiteDomain()+'!</p><p>Now with two lines!</p></div>'
         return {'name':'The Great Test',
                 'desc':desc,
+                'status':'AStatus',
                 'urllist':['http://'+self.getSiteDomain()+'?sid=1',
                            'http://'+self.getSiteDomain()+'?sid=2',
                            'http://'+self.getSiteDomain()+'?sid=3',

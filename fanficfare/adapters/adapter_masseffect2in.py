@@ -162,7 +162,7 @@ class MassEffect2InAdapter(BaseSiteAdapter):
                     self.story.extendList('authorId', [authorId])
                     self.story.extendList('authorUrl', [authorUrl])
 
-                if not self.story.getMetadata('rating'):
+                if not self.story.getMetadataRaw('rating'):
                     ratingTitle = chapter.getRatingTitle()
                     if ratingTitle:
                         self.story.setMetadata('rating', ratingTitle)
@@ -204,7 +204,6 @@ class MassEffect2InAdapter(BaseSiteAdapter):
         self.story.setMetadata('datePublished', datePublished)
         self.story.setMetadata('dateUpdated', dateUpdated)
         self.story.setMetadata('numWords', unicode(wordCount))
-        self.story.setMetadata('numChapters', len(chapters))
 
         # Site-specific metadata.
         self.story.setMetadata('language', self.SITE_LANGUAGE)

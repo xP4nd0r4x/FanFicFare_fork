@@ -184,6 +184,9 @@ class BaseStoryWriter(Requestable):
         if self.getConfig("output_css"):
             temp_css += self.getConfig("output_css")
 
+        if self.getConfig('include_images'):
+            temp_css = self.adapter.include_css_urls(self.story.getMetadata('storyUrl'), temp_css)
+
         # minor cheat, tucking css into metadata.
         self.story.setMetadata("output_css",
                                temp_css,

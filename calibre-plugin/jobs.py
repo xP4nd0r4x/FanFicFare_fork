@@ -44,33 +44,44 @@ def do_download_worker_single(site,
     print_basic_debug_info(sys.stderr)
 
     notification(0.01, _('Downloading FanFiction Stories'))
+    from calibre_plugins.fanficfare_plugin import FanFicFareBase
+    fffbase = FanFicFareBase(options['plugin_path'])
+    with fffbase: # so the sys.path was modified while loading the
+                  # plug impl.
+        from fanficfare.fff_profile import do_cprofile
 
-    count = 0
-    totals = {}
-    # can't do direct assignment in list comprehension?  I'm sure it
-    # makes sense to some pythonista.
-    # [ totals[x['url']]=0.0 for x in book_list if x['good'] ]
-    [ totals.update({x['url']:0.0}) for x in book_list if x['good']  ]
-    # logger.debug(sites_lists.keys())
+        ## extra function just so I can easily use the same
+        ## @do_cprofile decorator
+        @do_cprofile
+        def profiled_func():
+            count = 0
+            totals = {}
+            # can't do direct assignment in list comprehension?  I'm sure it
+            # makes sense to some pythonista.
+            # [ totals[x['url']]=0.0 for x in book_list if x['good'] ]
+            [ totals.update({x['url']:0.0}) for x in book_list if x['good']  ]
+            # logger.debug(sites_lists.keys())
 
-    def do_indiv_notif(percent,msg):
-        totals[msg] = percent/len(totals)
-        notification(max(0.01,sum(totals.values())), _('%(count)d of %(total)d stories finished downloading')%{'count':count,'total':len(totals)})
+            def do_indiv_notif(percent,msg):
+                totals[msg] = percent/len(totals)
+                notification(max(0.01,sum(totals.values())), _('%(count)d of %(total)d stories finished downloading')%{'count':count,'total':len(totals)})
 
-    do_list = []
-    done_list = []
-    ## pass failures from metadata through bg job so all results are
-    ## together.
-    for book in book_list:
-        if book['good']:
-            do_list.append(book)
-        else:
-            done_list.append(book)
-    for book in do_list:
-        # logger.info("%s"%book['url'])
-        done_list.append(do_download_for_worker(book,options,merge,do_indiv_notif))
-        count += 1
-    return finish_download(done_list)
+            do_list = []
+            done_list = []
+            logger.info("\n\n"+_("Downloading FanFiction Stories")+"\n%s\n"%("\n".join([ "%(status)s %(url)s %(comment)s" % book for book in book_list])))
+            ## pass failures from metadata through bg job so all results are
+            ## together.
+            for book in book_list:
+                if book['good']:
+                    do_list.append(book)
+                else:
+                    done_list.append(book)
+            for book in do_list:
+                # logger.info("%s"%book['url'])
+                done_list.append(do_download_for_worker(book,options,merge,do_indiv_notif))
+                count += 1
+            return finish_download(done_list)
+        return profiled_func()
 
 def finish_download(donelist):
     book_list = sorted(donelist,key=lambda x : x['listorder'])
@@ -113,15 +124,6 @@ def finish_download(donelist):
     # return the book list as the job result
     return book_list
 
-def do_download_site(site,book_list,options,merge,notification=lambda x,y:x):
-    # logger.info(_("Started job for %s")%site)
-    retval = []
-    for book in book_list:
-        # logger.info("%s"%book['url'])
-        retval.append(do_download_for_worker(book,options,merge,notification))
-        notification(10.0,book['url'])
-    return retval
-
 def do_download_for_worker(book,options,merge,notification=lambda x,y:x):
     '''
     Child job, to download story when run as a worker job
@@ -131,13 +133,13 @@ def do_download_for_worker(book,options,merge,notification=lambda x,y:x):
     fffbase = FanFicFareBase(options['plugin_path'])
     with fffbase: # so the sys.path was modified while loading the
                   # plug impl.
-        from calibre_plugins.fanficfare_plugin.dialogs import NotGoingToDownload
         from calibre_plugins.fanficfare_plugin.prefs import (
                 SAVE_YES, SAVE_YES_UNLESS_SITE, OVERWRITE, OVERWRITEALWAYS, UPDATE,
                 UPDATEALWAYS, ADDNEW, SKIP, CALIBREONLY, CALIBREONLYSAVECOL)
         from calibre_plugins.fanficfare_plugin.wordcount import get_word_count
         from fanficfare import adapters, writers
         from fanficfare.epubutils import get_update_data
+        from fanficfare.exceptions import NotGoingToDownload
         from fanficfare.six import text_type as unicode
 
         from calibre_plugins.fanficfare_plugin.fff_util import get_fff_config
@@ -154,8 +156,9 @@ def do_download_for_worker(book,options,merge,notification=lambda x,y:x):
             book['comment'] = _('Download started...')
 
             configuration = get_fff_config(book['url'],
-                                            options['fileform'],
-                                            options['personal.ini'])
+                                           options['fileform'],
+                                           options['personal.ini'],
+                                           ini_snippet=options.get('ini_snippet',None))
 
             # images only for epub, html, even if the user mistakenly
             # turned it on else where.
