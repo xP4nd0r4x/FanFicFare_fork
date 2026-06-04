@@ -138,8 +138,8 @@ from . import adapter_kakuyomujp
 from . import adapter_fanfictionsfr
 from . import adapter_touchfluffytail
 from . import adapter_spiritfanfictioncom
-from . import adapter_superlove
-from . import adapter_cfaa
+from . import adapter_authortoday
+from . import adapter_tlrulateru
 from . import adapter_althistorycom
 
 ## This bit of complexity allows adapters to be added by just adding
