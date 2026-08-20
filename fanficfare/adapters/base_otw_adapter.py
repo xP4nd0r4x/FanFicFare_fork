@@ -15,13 +15,11 @@
 # limitations under the License.
 #
 
-from __future__ import absolute_import
 import logging
 logger = logging.getLogger(__name__)
 import re
 import json
 
-from ..six import text_type as unicode
 from ..htmlcleanup import stripHTML
 from .. import exceptions as exceptions
 
@@ -115,7 +113,7 @@ class BaseOTWAdapter(BaseSiteAdapter):
         if self.getConfig("use_archive_transformativeworks_org"):
             logger.warning("Not doing OTW(AO3) login -- doesn't work with use_archive_transformativeworks_org")
             return False
-        if self.getConfig("open_pages_in_browser") and self.getConfig("use_browser_cache") and self.getConfig("use_browser_cache_only"):
+        if self.getConfig("use_browser_cache") and self.getConfig("use_browser_cache_only"):
             logger.warning("Not doing OTW(AO3) login -- doesn't work with open_pages_in_browser")
             return False
 
@@ -131,7 +129,13 @@ class BaseOTWAdapter(BaseSiteAdapter):
         params['utf8'] = u'\x2713' # utf8 *is* required now.  hex code works better than actual character for some reason. u'✓'
 
         # authenticity_token now comes from a completely separate json call.
-        token_json = json.loads(self.get_request('https://' + self.getSiteDomain() + "/token_dispenser.json"))
+        json_data = None
+        try:
+            json_data = self.get_request('https://' + self.getSiteDomain() + "/token_dispenser.json")
+            token_json = json.loads(json_data)
+        except:
+            logger.debug("token_dispenser.json FAILED returned: %s"%json_data)
+            raise exceptions.FailedToDownload('Failed getting login token from token_dispenser.json')
         params['authenticity_token'] = token_json['token']
 
         loginUrl = 'https://' + self.getSiteDomain() + '/users/login'
@@ -176,8 +180,8 @@ class BaseOTWAdapter(BaseSiteAdapter):
             ## <a href="#">Download</a>
             ## <ul class="expandable secondary">
             ## <li><a href="/downloads/951/Mothers%20and%20Sons.azw3?updated_at=1695162655">AZW3</a></li>
-            entireworka = chsoup.select_one('li.download ul li a')
-            m = re.match(r'/downloads/(?P<id>\d+)', entireworka['href'])
+            downloada = chsoup.select_one('li.download ul li a')
+            m = re.match(r'/downloads/(?P<id>\d+)', downloada['href'])
             if m and m.group('id'):
                 self.story.setMetadata('storyId',m.group('id'))
                 # normalized story URL.
@@ -188,10 +192,8 @@ class BaseOTWAdapter(BaseSiteAdapter):
                                                  self.getSiteDomain(),
                                                  self.getSiteExampleURLs())
 
-        metaurl = self.url+self.addurl
         url = self.url+'/navigate'+self.addurl
         logger.info("url: "+url)
-        logger.info("metaurl: "+metaurl)
 
         data = self.get_request(url)
         if '<h2 class="heading">Error 503 - Service unavailable</h2>' in data:
@@ -201,6 +203,15 @@ class BaseOTWAdapter(BaseSiteAdapter):
         if 'This site is in beta. Things may break or crash without notice.' in data:
             raise exceptions.FailedToDownload('Page failed to load, reported "This site is in beta".')
 
+        # need to log in for this one, or always_login.
+        # logger.debug(data)
+        if self.needToLoginCheck(data) or \
+                ( self.getConfig("always_login") and LOGOUT_STR not in data ):
+            self.performLogin(url,data)
+            data = self.get_request(url,usecache=False)
+
+        metaurl = self.url+self.addurl
+        logger.info("metaurl: "+metaurl)
         meta = self.get_request(metaurl)
 
         if 'This work is part of an ongoing challenge and will be revealed soon!' in meta:
@@ -223,14 +234,6 @@ class BaseOTWAdapter(BaseSiteAdapter):
 
         if "Sorry, we couldn&#x27;t find the work you were looking for." in data:
             raise exceptions.StoryDoesNotExist(self.url)
-
-        # need to log in for this one, or always_login.
-        # logger.debug(data)
-        if self.needToLoginCheck(data) or \
-                ( self.getConfig("always_login") and LOGOUT_STR not in data ):
-            self.performLogin(url,data)
-            data = self.get_request(url,usecache=False)
-            meta = self.get_request(metaurl,usecache=False)
 
         ## duplicate of check above for login-required stories that
         ## are also hidden.
@@ -320,7 +323,6 @@ class BaseOTWAdapter(BaseSiteAdapter):
         # break epub update.
         # Find the chapters:
         chapters=soup.find_all('a', href=re.compile(r'/works/'+self.story.getMetadata('storyId')+r"/chapters/\d+$"))
-        logger.debug("numChapters: (%s)"%self.story.getMetadata('numChapters'))
         if len(chapters)==1:
             self.add_chapter(self.story.getMetadata('title'),'https://'+self.host+chapters[0]['href'])
         else:
@@ -334,6 +336,12 @@ class BaseOTWAdapter(BaseSiteAdapter):
                 if newestChapter == None or chapterDate > newestChapter:
                     newestChapter = chapterDate
                     self.newestChapterNum = index
+
+        ## if the 'Chapter by Chapter' button is there, user has 'Show
+        ## the whole work by default.' on.
+        if metasoup.select_one('li.bychapter'):
+            logger.debug("Found full work already, save to use later.")
+            self.populate_whole_work(metasoup)
 
         a = metasoup.find('blockquote',{'class':'userstuff'})
         if a != None:
@@ -454,7 +462,7 @@ class BaseOTWAdapter(BaseSiteAdapter):
                 # we sort of assume ddmain exists because otherwise, there would be no fic
                 workskin = divmain.style
                 if workskin:
-                    workskin = unicode(workskin.contents[0])  # 'contents' returns a list with (here) a single element
+                    workskin = str(workskin.contents[0])  # 'contents' returns a list with (here) a single element
                     # some transformation to adjust which classes are affected
                     workskin = workskin.replace('#workskin', '.userstuff')
                     self.story.extra_css = "/*start of AO3 workskin*/\n" + workskin + "\n/* end of AO3 workskin*/\n"
@@ -472,6 +480,21 @@ class BaseOTWAdapter(BaseSiteAdapter):
         url = re.sub(r"https?://("+self.getSiteDomain()+r"/works/\d+/chapters/\d+)(\?view_adult=true)?$",
                      r"https://\1",url)
         return url
+
+    def populate_whole_work(self,soup):
+        self.full_work_soup = soup
+        ## AO3 has had several cases now where chapter numbers
+        ## are missing, breaking the link between
+        ## <div id=chapter-##> and Chapter ##.
+        ## But they should all still be there and in the right
+        ## order, so array[index]
+        self.full_work_chapters = self.full_work_soup.find_all('div',{'id':re.compile(r'chapter-\d+')})
+        if len(self.full_work_chapters) != self.num_chapters():
+            ## sanity check just in case.
+            self.use_full_work_soup = False
+            self.full_work_soup = None
+            logger.warning("chapter count in view_full_work(%s) disagrees with num of chapters(%s)--ending use_view_full_work"%(len(self.full_work_chapters),self.num_chapters()))
+
 
     # grab the text for an individual chapter.
     def getChapterTextNum(self, url, index):
@@ -499,18 +522,7 @@ class BaseOTWAdapter(BaseSiteAdapter):
             logger.debug("USE view_full_work")
             ## Assumed view_adult=true was cookied during metadata
             if not self.full_work_soup:
-                self.full_work_soup = self.make_soup(self.get_request(self.url+"?view_full_work=true"+self.addurl.replace('?','&')))
-                ## AO3 has had several cases now where chapter numbers
-                ## are missing, breaking the link between
-                ## <div id=chapter-##> and Chapter ##.
-                ## But they should all still be there and in the right
-                ## order, so array[index]
-                self.full_work_chapters = self.full_work_soup.find_all('div',{'id':re.compile(r'chapter-\d+')})
-                if len(self.full_work_chapters) != self.num_chapters():
-                    ## sanity check just in case.
-                    self.use_full_work_soup = False
-                    self.full_work_soup = None
-                    logger.warning("chapter count in view_full_work(%s) disagrees with num of chapters(%s)--ending use_view_full_work"%(len(self.full_work_chapters),self.num_chapters()))
+                self.populate_whole_work(self.make_soup(self.get_request(self.url+"?view_full_work=true"+self.addurl.replace('?','&'))))
             whole_dl_soup = self.full_work_soup
 
         if whole_dl_soup:
@@ -693,7 +705,7 @@ class BaseOTWAdapter(BaseSiteAdapter):
                 maxpagenum = max([ int(re.sub(r'^.*'+re.escape(pageparam)+r'(\d+).*$','\\1',x)) for x in pageurls ])
                 # logger.debug(maxpagenum)
                 for j in range(1,maxpagenum+1):
-                    pageurl = 'https://' + self.getSiteDomain() + '/series/' + seriesid + pageparam + unicode(j)
+                    pageurl = 'https://' + self.getSiteDomain() + '/series/' + seriesid + pageparam + str(j)
                     # logger.debug(pageurl)
                     pagesoup = self.make_soup(self.get_request(pageurl))
                     urllist.extend([ 'https://'+self.host+a['href'] for a in pagesoup.select('h4.heading a:first-child') ])
@@ -702,7 +714,7 @@ class BaseOTWAdapter(BaseSiteAdapter):
                 retval['urllist']=urllist
             else:
                 retval['urllist']=[ 'https://'+self.host+a['href'] for a in soup.select('h4.heading a:first-child') ]
-            retval['name']=stripHTML(soup.select_one("h2.heading"))
+            retval['name']=stripHTML(soup.select_one("div.series-show h2.heading"))
             desc=soup.select_one("div.wrapper dd blockquote.userstuff")
             if desc:
                 desc.name='div' # change blockquote to div to match stories.

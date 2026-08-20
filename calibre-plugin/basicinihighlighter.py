@@ -1,8 +1,5 @@
 # -*- coding: utf-8 -*-
 
-from __future__ import (absolute_import, unicode_literals, division,
-                        print_function)
-
 __license__   = 'GPL v3'
 __copyright__ = '2015, Jim Miller'
 __docformat__ = 'restructuredtext en'
@@ -10,8 +7,6 @@ __docformat__ = 'restructuredtext en'
 import re
 
 from PyQt5.Qt import (Qt, QSyntaxHighlighter, QTextCharFormat, QBrush)
-
-from fanficfare.six import string_types
 
 class BasicIniHighlighter(QSyntaxHighlighter):
     '''
@@ -52,7 +47,7 @@ class BasicIniHighlighter(QSyntaxHighlighter):
 
 class HighlightingRule():
     def __init__( self, pattern, color, style ):
-        if isinstance(pattern, string_types):
+        if isinstance(pattern, str):
             self.pattern = re.compile(pattern)
         else:
             self.pattern=pattern

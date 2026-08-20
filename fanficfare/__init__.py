@@ -14,7 +14,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 #
-from __future__ import absolute_import
 
 try: # just a way to switch between CLI and PI
     from calibre.constants import DEBUG
@@ -25,12 +24,10 @@ try: # just a way to switch between CLI and PI
         loghandler.setLevel(logging.CRITICAL)
         logger.setLevel(logging.CRITICAL)
 except:
-    import sys
-    if sys.version_info >= (2, 7):
-        import logging
-        logger = logging.getLogger(__name__)
-        loghandler=logging.StreamHandler()
-        loghandler.setFormatter(logging.Formatter("FFF: %(levelname)s: %(asctime)s: %(filename)s(%(lineno)d): %(message)s"))
-        logger.addHandler(loghandler)
-        loghandler.setLevel(logging.DEBUG)
-        logger.setLevel(logging.DEBUG)
+    import logging
+    logger = logging.getLogger(__name__)
+    loghandler=logging.StreamHandler()
+    loghandler.setFormatter(logging.Formatter("FFF: %(levelname)s: %(asctime)s: %(filename)s(%(lineno)d): %(message)s"))
+    logger.addHandler(loghandler)
+    loghandler.setLevel(logging.DEBUG)
+    logger.setLevel(logging.DEBUG)

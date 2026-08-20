@@ -40,8 +40,8 @@ except ImportError:
 import logging
 logger = logging.getLogger(__name__)
 
-from ..six.moves.urllib.parse import urlparse, urlunparse
-from ..six import ensure_text
+from urllib.parse import urlparse, urljoin
+from ..ensure import ensure_text
 
 from ..exceptions import BrowserCacheException
 
@@ -59,7 +59,7 @@ class BaseBrowserCache(object):
         self.getConfigList = getConfigList_fn
 
         self.cache_dir = self.expand_cache_dir(getConfig_fn(CACHE_DIR_CONFIG))
-        age_limit=self.getConfig(AGE_LIMIT_CONFIG)
+        age_limit=self.getConfig(AGE_LIMIT_CONFIG,4.0)
         if age_limit is None or age_limit == '' or float(age_limit) < 0.0:
             self.age_limit = None
         else:
@@ -173,14 +173,8 @@ class BaseBrowserCache(object):
         """
         Most redirects are relative, but not all.
         """
-        pLoc = urlparse(location)
-        pUrl = urlparse(origurl)
-        # logger.debug(pLoc)
-        # logger.debug(pUrl)
-        return urlunparse((pLoc.scheme or pUrl.scheme,
-                           pLoc.netloc or pUrl.netloc,
-                           location.strip(),
-                           '','',''))
+        url = urljoin(origurl,location)
+        return url
 
     def decompress(self, encoding, data):
         encoding = ensure_text(encoding)

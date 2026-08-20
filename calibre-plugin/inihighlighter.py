@@ -1,8 +1,5 @@
 # -*- coding: utf-8 -*-
 
-from __future__ import (absolute_import, unicode_literals, division,
-                        print_function)
-
 __license__   = 'GPL v3'
 __copyright__ = '2020, Jim Miller'
 __docformat__ = 'restructuredtext en'
@@ -23,8 +20,6 @@ except:
     # qt5 Calibre v2-5
     QFontNormal = QFont.Normal
     QFontBold = QFont.Bold
-
-from fanficfare.six import string_types
 
 class IniHighlighter(QSyntaxHighlighter):
     '''
@@ -147,7 +142,7 @@ class HighlightingRule():
                   weight=QFontNormal,
                   style=Qt.SolidPattern,
                   blocknum=0):
-        if isinstance(pattern, string_types):
+        if isinstance(pattern, str):
             self.pattern = re.compile(pattern)
         else:
             self.pattern=pattern

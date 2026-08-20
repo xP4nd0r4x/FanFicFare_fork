@@ -32,7 +32,6 @@
 ##
 ## XXX
 
-from __future__ import absolute_import
 import os
 import apsw
 import ctypes
@@ -102,7 +101,7 @@ class SqldbCache(BaseChromiumCache):
         ## XXX Is hash key collision an issue?
         ## XXX What do the other columns (body_end, start, end) mean?
 
-        from ..six.moves.urllib.request import pathname2url
+        from urllib.request import pathname2url
         shareopenVFS = ShareOpenVFS()
         logger.debug("VFS available %s"% apsw.vfs_names())
 

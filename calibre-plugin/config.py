@@ -1,8 +1,5 @@
 # -*- coding: utf-8 -*-
 
-from __future__ import (unicode_literals, division, absolute_import,
-                        print_function)
-
 __license__   = 'GPL v3'
 __copyright__ = '2021, Jim Miller'
 __docformat__ = 'restructuredtext en'
@@ -23,8 +20,6 @@ from PyQt5.Qt import (QWidget, QVBoxLayout, QHBoxLayout, QGridLayout, QLabel,
 from calibre.gui2 import dynamic, info_dialog
 from calibre.gui2.complete2 import EditWithComplete
 from calibre.gui2.dialogs.confirm_delete import confirm
-import fanficfare.six as six
-from six import text_type as unicode
 
 try:
     from calibre.ebooks.covers import generate_cover as cal_generate_cover
@@ -106,7 +101,7 @@ class RejectURLList:
     def _get_listcache(self):
         with busy_cursor():
             if self.listcache == None:
-                # logger.debug("prefs['last_saved_version']:%s"%unicode(self.prefs['last_saved_version']))
+                # logger.debug("prefs['last_saved_version']:%s"%str(self.prefs['last_saved_version']))
                 if tuple(self.prefs['last_saved_version']) > (3, 1, 7) and \
                         self.rejects_data['rejecturls_data']:
                     # logger.debug("_get_listcache: rejects_data['rejecturls_data']")
@@ -276,8 +271,8 @@ class ConfigWidget(QWidget):
         with busy_cursor():
 
             # basic
-            prefs['fileform'] = unicode(self.basic_tab.fileform.currentText())
-            prefs['collision'] = save_collisions[unicode(self.basic_tab.collision.currentText())]
+            prefs['fileform'] = str(self.basic_tab.fileform.currentText())
+            prefs['collision'] = save_collisions[str(self.basic_tab.collision.currentText())]
             prefs['updatemeta'] = self.basic_tab.updatemeta.isChecked()
             prefs['bgmeta'] = self.basic_tab.bgmeta.isChecked()
             prefs['keeptags'] = self.basic_tab.keeptags.isChecked()
@@ -300,15 +295,15 @@ class ConfigWidget(QWidget):
             prefs['checkforurlchange'] = self.basic_tab.checkforurlchange.isChecked()
             prefs['injectseries'] = self.basic_tab.injectseries.isChecked()
             prefs['matchtitleauth'] = self.basic_tab.matchtitleauth.isChecked()
-            prefs['do_wordcount'] = prefs_save_options[unicode(self.basic_tab.do_wordcount.currentText())]
+            prefs['do_wordcount'] = prefs_save_options[str(self.basic_tab.do_wordcount.currentText())]
             prefs['smarten_punctuation'] = self.basic_tab.smarten_punctuation.isChecked()
             prefs['reject_always'] = self.basic_tab.reject_always.isChecked()
             prefs['reject_delete_default'] = self.basic_tab.reject_delete_default.isChecked()
 
             if self.readinglist_tab:
                 # lists
-                prefs['send_lists'] = ', '.join([ x.strip() for x in unicode(self.readinglist_tab.send_lists_box.text()).split(',') if x.strip() ])
-                prefs['read_lists'] = ', '.join([ x.strip() for x in unicode(self.readinglist_tab.read_lists_box.text()).split(',') if x.strip() ])
+                prefs['send_lists'] = ', '.join([ x.strip() for x in str(self.readinglist_tab.send_lists_box.text()).split(',') if x.strip() ])
+                prefs['read_lists'] = ', '.join([ x.strip() for x in str(self.readinglist_tab.read_lists_box.text()).split(',') if x.strip() ])
                 # logger.debug("send_lists: %s"%prefs['send_lists'])
                 # logger.debug("read_lists: %s"%prefs['read_lists'])
                 prefs['addtolists'] = self.readinglist_tab.addtolists.isChecked()
@@ -332,17 +327,17 @@ class ConfigWidget(QWidget):
             prefs['cal_cols_pass_in'] = self.personalini_tab.cal_cols_pass_in.isChecked()
 
             # Covers tab
-            prefs['updatecalcover'] = prefs_save_options[unicode(self.calibrecover_tab.updatecalcover.currentText())]
+            prefs['updatecalcover'] = prefs_save_options[str(self.calibrecover_tab.updatecalcover.currentText())]
             # for backward compatibility:
             prefs['updatecover'] = prefs['updatecalcover'] == SAVE_YES
-            prefs['gencalcover'] = prefs_save_options[unicode(self.calibrecover_tab.gencalcover.currentText())]
+            prefs['gencalcover'] = prefs_save_options[str(self.calibrecover_tab.gencalcover.currentText())]
             prefs['calibre_gen_cover'] = self.calibrecover_tab.calibre_gen_cover.isChecked()
             prefs['plugin_gen_cover'] = self.calibrecover_tab.plugin_gen_cover.isChecked()
             prefs['gcnewonly'] = self.calibrecover_tab.gcnewonly.isChecked()
             prefs['covernewonly'] = self.calibrecover_tab.covernewonly.isChecked()
             gc_site_settings = {}
-            for (site,combo) in six.iteritems(self.calibrecover_tab.gc_dropdowns):
-                val = unicode(combo.itemData(combo.currentIndex()))
+            for (site,combo) in iter(self.calibrecover_tab.gc_dropdowns.items()):
+                val = str(combo.itemData(combo.currentIndex()))
                 if val != 'none':
                     gc_site_settings[site] = val
                     #print("gc_site_settings[%s]:%s"%(site,gc_site_settings[site]))
@@ -369,7 +364,7 @@ class ConfigWidget(QWidget):
 
             # Standard Columns tab
             colsnewonly = {}
-            for (col,checkbox) in six.iteritems(self.std_columns_tab.stdcol_newonlycheck):
+            for (col,checkbox) in iter(self.std_columns_tab.stdcol_newonlycheck.items()):
                 colsnewonly[col] = checkbox.isChecked()
             prefs['std_cols_newonly'] = colsnewonly
 
@@ -387,37 +382,37 @@ class ConfigWidget(QWidget):
 
             # Custom Columns tab
             # error column
-            prefs['errorcol'] = unicode(self.cust_columns_tab.errorcol.itemData(self.cust_columns_tab.errorcol.currentIndex()))
+            prefs['errorcol'] = str(self.cust_columns_tab.errorcol.itemData(self.cust_columns_tab.errorcol.currentIndex()))
             prefs['save_all_errors'] = self.cust_columns_tab.save_all_errors.isChecked()
 
             # metadata column
-            prefs['savemetacol'] = unicode(self.cust_columns_tab.savemetacol.itemData(self.cust_columns_tab.savemetacol.currentIndex()))
+            prefs['savemetacol'] = str(self.cust_columns_tab.savemetacol.itemData(self.cust_columns_tab.savemetacol.currentIndex()))
 
             # lastchecked column
-            prefs['lastcheckedcol'] = unicode(self.cust_columns_tab.lastcheckedcol.itemData(self.cust_columns_tab.lastcheckedcol.currentIndex()))
+            prefs['lastcheckedcol'] = str(self.cust_columns_tab.lastcheckedcol.itemData(self.cust_columns_tab.lastcheckedcol.currentIndex()))
 
             # cust cols tab
             colsmap = {}
-            for (col,combo) in six.iteritems(self.cust_columns_tab.custcol_dropdowns):
-                val = unicode(combo.itemData(combo.currentIndex()))
+            for (col,combo) in iter(self.cust_columns_tab.custcol_dropdowns.items()):
+                val = str(combo.itemData(combo.currentIndex()))
                 if val != 'none':
                     colsmap[col] = val
                     #print("colsmap[%s]:%s"%(col,colsmap[col]))
             prefs['custom_cols'] = colsmap
 
             colsnewonly = {}
-            for (col,checkbox) in six.iteritems(self.cust_columns_tab.custcol_newonlycheck):
+            for (col,checkbox) in iter(self.cust_columns_tab.custcol_newonlycheck.items()):
                 colsnewonly[col] = checkbox.isChecked()
             prefs['custom_cols_newonly'] = colsnewonly
 
             prefs['allow_custcol_from_ini'] = self.cust_columns_tab.allow_custcol_from_ini.isChecked()
 
-            prefs['imapserver'] = unicode(self.imap_tab.imapserver.text()).strip()
-            prefs['imapuser'] = unicode(self.imap_tab.imapuser.text()).strip()
-            prefs['imappass'] = unicode(self.imap_tab.imappass.text()).strip()
-            prefs['imapfolder'] = unicode(self.imap_tab.imapfolder.text()).strip()
-            # prefs['imaptags'] = unicode(self.imap_tab.imaptags.text()).strip()
-            prefs['imaptags'] = ', '.join([ x.strip() for x in unicode(self.imap_tab.imaptags.text()).split(',') if x.strip() ])
+            prefs['imapserver'] = str(self.imap_tab.imapserver.text()).strip()
+            prefs['imapuser'] = str(self.imap_tab.imapuser.text()).strip()
+            prefs['imappass'] = str(self.imap_tab.imappass.text()).strip()
+            prefs['imapfolder'] = str(self.imap_tab.imapfolder.text()).strip()
+            # prefs['imaptags'] = str(self.imap_tab.imaptags.text()).strip()
+            prefs['imaptags'] = ', '.join([ x.strip() for x in str(self.imap_tab.imaptags.text()).split(',') if x.strip() ])
             prefs['imapmarkread'] = self.imap_tab.imapmarkread.isChecked()
             prefs['imapsessionpass'] = self.imap_tab.imapsessionpass.isChecked()
             prefs['auto_reject_from_email'] = self.imap_tab.auto_reject_from_email.isChecked()
@@ -918,7 +913,7 @@ class PersonalIniTab(QWidget):
     def populate_snip_combobox(self):
         self.ini_snip.clear()
         if self.ini_snips:
-            self.ini_snip.addItem('Saved Snippets')
+            self.ini_snip.addItem(_('Saved Snippets'))
             self.ini_snip.setItemData(self.ini_snip.count()-1, italic, Qt.ItemDataRole.FontRole)
             self.ini_snip.model().item(self.ini_snip.count()-1).setEnabled(False)
             for k in sorted(self.ini_snips.keys()):
@@ -1009,11 +1004,11 @@ class PersonalIniTab(QWidget):
 
     def show_showcalcols(self):
         lines=[]#[('calibre_std_user_categories',_('User Categories'))]
-        for k,f in six.iteritems(field_metadata):
+        for k,f in iter(field_metadata.items()):
             if f['name'] and k not in STD_COLS_SKIP: # only if it has a human readable name.
                 lines.append(('calibre_std_'+k,f['name']))
 
-        for k, column in six.iteritems(self.plugin_action.gui.library_view.model().custom_columns):
+        for k, column in iter(self.plugin_action.gui.library_view.model().custom_columns.items()):
             if k != prefs['savemetacol']:
                 # custom always have name.
                 lines.append(('calibre_cust_'+k[1:],column['name']))
@@ -1298,7 +1293,7 @@ class CalibreCoverTab(QWidget):
 
         ## First, cover gen on/off
         for e in self.gencov_elements:
-            e.setEnabled(prefs_save_options[unicode(self.gencalcover.currentText())] != SAVE_NO)
+            e.setEnabled(prefs_save_options[str(self.gencalcover.currentText())] != SAVE_NO)
 
         # next, disable plugin settings when using calibre gen cov.
         if not self.plugin_gen_cover.isChecked():
@@ -1689,7 +1684,7 @@ class StandardColumnsTab(QWidget):
         self.stdcol_newonlycheck = {}
 
         rows=[]
-        for key, column in six.iteritems(columns):
+        for key, column in iter(columns.items()):
             row = []
             rows.append(row)
             label = QLabel(column)

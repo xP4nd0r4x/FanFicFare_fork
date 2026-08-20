@@ -15,7 +15,6 @@
 # limitations under the License.
 #
 
-from __future__ import absolute_import
 import logging
 from datetime import datetime
 logger = logging.getLogger(__name__)
@@ -25,8 +24,7 @@ import json
 from ..htmlcleanup import stripHTML
 from .. import exceptions as exceptions
 
-# py2 vs py3 transition
-from ..six import text_type as unicode
+
 
 from .base_adapter import BaseSiteAdapter,  makeDate
 
@@ -413,7 +411,7 @@ class BaseXenForo2ForumAdapter(BaseSiteAdapter):
 
     def get_cache_post(self,postid):
         ## saved using original 'post-99999' id for key.
-        postid=unicode(postid) # thank you, Py3.
+        postid=str(postid)
         if self.getPathPrefix()+'posts/' in postid:
             ## allows chapter urls to be passed in directly.
             # assumed normalized to /posts/1234/
@@ -422,6 +420,8 @@ class BaseXenForo2ForumAdapter(BaseSiteAdapter):
             postid = postid.split('#')[1]
         elif '/post-' in postid:
             postid = "post-"+postid.split('/post-')[-1]
+        elif '#' in postid:
+            postid = "post-"+postid.split('#')[1]
         # logger.debug("get cache %s %s"%(postid,postid in self.post_cache))
         return self.post_cache.get(postid,None)
 
@@ -654,7 +654,7 @@ class BaseXenForo2ForumAdapter(BaseSiteAdapter):
                 lastlink = threadmark_pages[-1]['href']
                 m = re.match(r'^(?P<prefix>.*page=)(?P<lastpage>\d+)$',lastlink)
                 for j in range( 2, int(m.group('lastpage'))+1 ):
-                    pageurl = (self.getURLDomain() + m.group('prefix') + unicode(j))
+                    pageurl = (self.getURLDomain() + m.group('prefix') + str(j))
                     # logger.debug("pageurl: %s"%pageurl)
                     threadmarks.extend(self.fetch_threadmarks(pageurl,
                                                               tmcat_name,
@@ -684,7 +684,7 @@ class BaseXenForo2ForumAdapter(BaseSiteAdapter):
 
     def make_reader_url(self,tmcat_num,reader_page_num):
         # https://xf2test.sufficientvelocity.com/threads/mauling-snarks-worm.41471/reader/page-4?threadmark_category=4
-        return self.story.getMetadata('storyUrl')+'reader/page-'+unicode(reader_page_num)+'?threadmark_category='+tmcat_num
+        return self.story.getMetadata('storyUrl')+'reader/page-'+str(reader_page_num)+'?threadmark_category='+tmcat_num
 
     def get_quote_expand_tag(self,soup):
         return soup.find_all('div',{'class':re.compile(r'bbCodeBlock-(expand|shrink)Link')})
@@ -753,14 +753,11 @@ class BaseXenForo2ForumAdapter(BaseSiteAdapter):
             self.story.addToList('parentforums',stripHTML(atag))
 
         use_threadmark_chaps = False
-        if '#' in useurl:
-            anchorid = useurl.split('#')[1]
-            # souptag = souptag.find('li',id=anchorid)
+        if '#' in useurl or self.getPathPrefix()+'posts/' in useurl:
             # cache is now loaded with posts from that reader
             # page.  looking for it in cache reuses code in
             # cache_posts that finds post tags.
-            souptag = self.get_cache_post(anchorid)
-
+            souptag = self.get_cache_post(useurl)
         else:
             threadmarks = self.extract_threadmarks(souptag)
             souptag = self.get_first_post(topsoup)
@@ -855,8 +852,11 @@ class BaseXenForo2ForumAdapter(BaseSiteAdapter):
                     tagtitle.decompose()
 
                 tstr = stripHTML(tag)
+                ## tags sometimes contain \n\n like "Worm\n\n(Wildbow (Author))"
+                ## which makes for extremely difficult to find replace_metadata issues.
+                tstr = re.sub(r'\s+',' ',tstr)
                 if self.getConfig('capitalize_forumtags'):
-                    tstr = title(tstr)
+                    tstr = title_case(tstr)
                 if tagname:
                     # logger.debug("Forum Tag(%s) list(%s)"%(stripHTML(tag),tagname))
                     self.story.addToList(tagname,tstr)
@@ -922,16 +922,25 @@ class BaseXenForo2ForumAdapter(BaseSiteAdapter):
             # in case it changes:
             posts_per_page = int(self.getConfig("reader_posts_per_page",10))
 
-            ## look forward a hardcoded 3 pages max in reader mode.
-            for offset in range(0,3):
+            ## Look forward AND backward two pages max in reader mode.
+            ## Probably only need one each direction, but I didn't
+            ## expect to need any.
+            ##
+            ## Because SB(at least) will sometimes put 9 or 11 posts
+            ## on a reader page and no reader-mode (individual /posts/
+            ## URLs) are being blocked lately.  See #1395
+            for offset in (0,1,-1,2,-2):
                 souptag = self.get_cache_post(url)
-
                 if not souptag and url in self.threadmarks_for_reader:
                     (tmcat_num,tmcat_index)=self.threadmarks_for_reader[url]
                     reader_page_num = int((tmcat_index+posts_per_page)/posts_per_page) + offset
-                    # logger.debug('Reader page offset:%s tmcat_num:%s tmcat_index:%s'%(offset,tmcat_num,tmcat_index))
+                    if reader_page_num < 1:
+                        # don't try pages < 1.
+                        continue
                     reader_url=self.make_reader_url(tmcat_num,reader_page_num)
-                    # logger.debug("Fetch reader URL to: %s"%reader_url)
+                    # logger.debug("Fetch reader page: %s"%reader_url)
+                    if offset != 0:
+                        logger.debug("Post was not found on expected reader page, trying offset(%s)"%offset)
                     topsoup = self.make_soup(self.get_request(reader_url))
                     # make_soup() loads cache with posts from that reader
                     # page.  looking for it in cache reuses code in
@@ -1080,7 +1089,7 @@ class BaseXenForo2ForumAdapter(BaseSiteAdapter):
             for img in soup.find_all('img',src=re.compile(r'(^(data:image|failedtoload)|(clear.png$))')):
                 # logger.debug("replace_failed_smilies_with_alt_text img: %s"%img)
                 if img.has_attr('class'):
-                    clses = unicode(img['class']) # stringify list.
+                    clses = str(img['class']) # stringify list.
                     if img.has_attr('alt') and ('mceSmilie' in clses or 'smilie--sprite' in clses):
                         ## Change the img to a span containing the alt
                         ## text, remove attrs.  This is a one-way change.
@@ -1096,8 +1105,8 @@ class BaseXenForo2ForumAdapter(BaseSiteAdapter):
 
 # from https://daviseford.com/blog/2017/04/27/python-string-to-title-including-punctuation.html
 # fixes englisher contractions being title cased incorrectly.
-def title(title):
-    return re.sub(r"(?<=[a-z])[\']([A-Z])", lambda x: x.group().lower(), title.title())
+def title_case(title):
+    return re.sub(r"(?:(?<=[a-z])[\']|\d)([A-Z])", lambda x: x.group().lower(), title.title())
 
 # decode obscured email addresses.  Since we're downloading fiction,
 # they're going to be fictitious and fictitious characters don't

@@ -15,16 +15,13 @@
 # limitations under the License.
 #
 
-from __future__ import absolute_import
 import re
 import os
 from datetime import datetime, timedelta
 from collections import defaultdict
 
-# py2 vs py3 transition
-from ..six import text_type as unicode
-from ..six import string_types as basestring
-from ..six.moves.urllib.parse import urlparse, parse_qs, urlunparse
+
+from urllib.parse import urlparse, parse_qs, urljoin
 
 import logging
 from functools import partial
@@ -55,7 +52,7 @@ class TimeKeeper(defaultdict):
     def add(self, name, td):
         self[name] = self[name] + td
 
-    def __unicode__(self):
+    def __str__(self):
         keys = list(self.keys())
         keys.sort()
         return u"\n".join([ u"%s: %s"%(k,self[k]) for k in keys ])
@@ -189,7 +186,7 @@ class BaseSiteAdapter(Requestable):
                 # leverage ignore list to implement dedup'ing
                 self.ignore_chapter_url_list[normal_chap_url] = True
 
-            meta = defaultdict(unicode,othermeta) # copy othermeta
+            meta = defaultdict(str,othermeta) # copy othermeta
             if title:
                 title = stripHTML(title,remove_all_entities=False)
             else:
@@ -574,7 +571,7 @@ try to download.</p>
                     # strings and tags that aren't <span class='label'>
                     while c and not (isinstance(c,Tag) and c.name == 'span' and ('label' in c['class'] or 'classification' in c['class'])):
                         # logger.debug(c)
-                        desc += unicode(c)
+                        desc += str(c)
                         c = c.nextSibling
                         # logger.debug(c)
                     if desc:
@@ -627,7 +624,7 @@ try to download.</p>
 
         #print(u"[[[[[\n\n%s\n\n]]]]]]]]"%svalue) # works for either soup or string
         if self.getConfig('keep_summary_html'):
-            if isinstance(svalue,basestring):
+            if isinstance(svalue,str):
                 # bs4/html5lib add html, header and body tags, which
                 # we don't want.  utf8FromSoup will strip the body tags for us.
                 svalue = BeautifulSoup(svalue,"html5lib").body
@@ -705,8 +702,8 @@ try to download.</p>
                     logger.info("CSS url() image failed.  Skipping url(%s)"%style_url)
         return newstyle
 
-    # This gives us a unicode object, not just a string containing bytes.
-    # (I gave soup a unicode string, you'd think it could give it back...)
+    # This gives us a str object, not just a string containing bytes.
+    # (I gave soup a str string, you'd think it could give it back...)
     # Now also does a bunch of other common processing for us.
     def utf8FromSoup(self,url,soup,fetch=None,allow_replace_br_with_p=True):
         start = datetime.now()
@@ -746,7 +743,7 @@ try to download.</p>
             for emailtag in soup.select('a.__cf_email__') + soup.select('span.__cf_email__'):
                 tagtext = '(tagtext not set yet)'
                 try:
-                    tagtext = unicode(emailtag)
+                    tagtext = str(emailtag)
                     emaildata = emailtag['data-cfemail']
                     if not emaildata:
                         continue
@@ -798,6 +795,13 @@ try to download.</p>
             ## Embedded CSS <style> tag url() images
             for embedded in soup.select('style'):
                 embedded.string = self.include_css_urls(url,embedded.string)
+        elif self.getConfig('keep_img_tags'):
+            logger.debug("keep_img_tags")
+            ## keep <img>s normalize src attrs.
+            acceptable_attributes.extend(('src','alt'))
+            for img in soup.find_all('img'):
+                if img.has_attr('src'):
+                    img['src'] = urljoin(url,img['src'])
         else:
             ## remove all img tags entirely
             for img in soup.find_all('img'):
@@ -847,29 +851,7 @@ try to download.</p>
 
                     ## make link absolute if not one of the above.
                     if not hrefurl:
-                        parsedUrl = urlparse(url)
-                        if href.startswith("//") :
-                            hrefurl = urlunparse(
-                                (parsedUrl.scheme,
-                                 '',
-                                 href,
-                                 '','',''))
-                        elif href.startswith("/") :
-                            hrefurl = urlunparse(
-                                (parsedUrl.scheme,
-                                 parsedUrl.netloc,
-                                 href,
-                                 '','',''))
-                        else:
-                            if parsedUrl.path.endswith("/"):
-                                toppath = parsedUrl.path
-                            else:
-                                toppath = parsedUrl.path[:parsedUrl.path.rindex('/')+1]
-                            hrefurl = urlunparse(
-                                (parsedUrl.scheme,
-                                 parsedUrl.netloc,
-                                 toppath + href,
-                                 '','',''))
+                        hrefurl = urljoin(url,href)
                     alink['href'] = hrefurl
                     # logger.debug("\n===========\nparsedUrl.path:%s\ntoppath:%s\nhrefurl:%s\n\n"%(parsedUrl.path,toppath,hrefurl))
 
@@ -897,7 +879,7 @@ try to download.</p>
                     # for more because multiple 'whitespace' strings
                     # show up differently and doing stripHTML() also
                     # catches <br> etc.
-                    soup = BeautifulSoup(unicode(soup),'html5lib')
+                    soup = BeautifulSoup(str(soup),'html5lib')
                 for t in soup.find_all(recursive=True):
                     for attr in self.get_attr_keys(t):
                         if attr not in acceptable_attributes:
@@ -936,7 +918,7 @@ try to download.</p>
             if "%s"%ae != "'NoneType' object has no attribute 'next_element'":
                 logger.error("Error parsing HTML, probably poor input HTML. %s"%ae)
 
-        retval = unicode(soup)
+        retval = str(soup)
 
         if self.getConfig('nook_img_fix') and not self.getConfig('replace_br_with_p'):
             # if the <img> tag doesn't have a div or a p around it,
@@ -995,7 +977,7 @@ try to download.</p>
         ## soup and re-soup because BS4/html5lib is more forgiving of
         ## incorrectly nested tags that way.
         soup = BeautifulSoup(data,'html5lib')
-        soup = BeautifulSoup(unicode(soup),'html5lib')
+        soup = BeautifulSoup(str(soup),'html5lib')
 
         for ns in soup.find_all('fff_hide_noscript'):
             ns.name = 'noscript'

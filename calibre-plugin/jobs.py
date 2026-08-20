@@ -1,8 +1,5 @@
 # -*- coding: utf-8 -*-
 
-from __future__ import (unicode_literals, division, absolute_import,
-                        print_function)
-
 __license__   = 'GPL v3'
 __copyright__ = '2020, Jim Miller, 2011, Grant Drake <grant.drake@gmail.com>'
 __docformat__ = 'restructuredtext en'
@@ -140,8 +137,7 @@ def do_download_for_worker(book,options,merge,notification=lambda x,y:x):
         from fanficfare import adapters, writers
         from fanficfare.epubutils import get_update_data
         from fanficfare.exceptions import NotGoingToDownload
-        from fanficfare.six import text_type as unicode
-
+        
         from calibre_plugins.fanficfare_plugin.fff_util import get_fff_config
 
         try:
@@ -372,13 +368,13 @@ def do_download_for_worker(book,options,merge,notification=lambda x,y:x):
             book['good']=False
             book['status']=_('Bad')
             book['showerror']=d.showerror
-            book['comment']=unicode(d)
+            book['comment']=str(d)
             book['icon'] = d.icon
 
         except Exception as e:
             book['good']=False
             book['status']=_('Error')
-            book['comment']=unicode(e)
+            book['comment']=str(e)
             book['icon']='dialog_error.png'
             book['status'] = _('Error')
             logger.info("Exception: %s:%s"%(book,book['comment']),exc_info=True)
@@ -395,10 +391,18 @@ def inject_cal_cols(book,story,configuration):
         extra_valid = []
         for k in book['calibre_columns'].keys():
             v = book['calibre_columns'][k]
-            story.setMetadata(k,v['val'])
             injectini.append('%s_label:%s'%(k,v['label']))
             extra_valid.append(k)
         if extra_valid: # if empty, there's nothing to add.
             injectini.append("add_to_extra_valid_entries:,"+','.join(extra_valid))
+
+            # extra_valid_entries was already populated, clear cache.
+            configuration.reset_cached_config()
             configuration.read_file(StringIO('\n'.join(injectini)))
-            #print("added:\n%s\n"%('\n'.join(injectini)))
+            # logger.debug("added:\n%s\n"%('\n'.join(injectini)))
+
+            # loop a second time to set values so extra_valid_entries
+            # is correct first.
+            for k in book['calibre_columns'].keys():
+                v = book['calibre_columns'][k]
+                story.setMetadata(k,v['val'])

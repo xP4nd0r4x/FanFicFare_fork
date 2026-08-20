@@ -1,14 +1,10 @@
 # -*- coding: utf-8 -*-
 
-from __future__ import (unicode_literals, division, absolute_import,
-                        print_function)
-
 __license__   = 'GPL v3'
 __copyright__ = '2021, Jim Miller'
 __docformat__ = 'restructuredtext en'
 
-import fanficfare.six as six
-from fanficfare.six import ensure_text, string_types, text_type as unicode
+from fanficfare.ensure import ensure_text
 
 import logging
 logger = logging.getLogger(__name__)
@@ -1050,7 +1046,7 @@ class FanFicFarePlugin(InterfaceAction):
                                  merge=False, urlmapfile=None):
         # new question_cache each time we start prep'ing downloads.
         self.question_cache = {}
-        if isinstance(update_books, string_types):
+        if isinstance(update_books, str):
             url_list = split_text_to_urls(update_books)
             update_books = self.convert_urls_to_books(url_list)
 
@@ -1142,7 +1138,7 @@ class FanFicFarePlugin(InterfaceAction):
     def get_urls_clip(self,storyurls=True):
         url_list = []
         if prefs['urlsfromclip']:
-            for url in unicode(QApplication.instance().clipboard().text()).split():
+            for url in str(QApplication.instance().clipboard().text()).split():
                 if not storyurls or self.is_good_downloader_url(url):
                     url_list.append(url)
 
@@ -1165,7 +1161,7 @@ class FanFicFarePlugin(InterfaceAction):
         '''Fetch metadata for stories from servers, launch BG job when done.'''
         # new question_cache each time we start prep'ing downloads.
         self.question_cache = {}
-        if isinstance(books, string_types):
+        if isinstance(books, str):
             url_list = split_text_to_urls(books)
             books = self.convert_urls_to_books(url_list)
 
@@ -1716,7 +1712,7 @@ class FanFicFarePlugin(InterfaceAction):
                         #logger.debug("%s(%s): %s"%(label,key,value))
 
                 # custom columns
-                for k, column in six.iteritems(self.gui.library_view.model().custom_columns):
+                for k, column in iter(self.gui.library_view.model().custom_columns.items()):
                     if k != prefs['savemetacol']:
                         key='calibre_cust_'+k[1:]
                         label=column['name']
@@ -2453,7 +2449,7 @@ class FanFicFarePlugin(InterfaceAction):
         # implement 'newonly' flags here by setting to the current
         # value again.
         if not book['added']:
-            for (col,newonly) in six.iteritems(prefs['std_cols_newonly']):
+            for (col,newonly) in iter(prefs['std_cols_newonly'].items()):
                 if newonly:
                     if col == "identifiers":
                         mi.set_identifiers(oldmi.get_identifiers())
@@ -2495,7 +2491,7 @@ class FanFicFarePlugin(InterfaceAction):
             self.set_custom(db, book_id, 'lastcheckedcol', book['timestamp'], label=label, commit=True)
 
         #print("prefs['custom_cols'] %s"%prefs['custom_cols'])
-        for col, meta in six.iteritems(prefs['custom_cols']):
+        for col, meta in iter(prefs['custom_cols'].items()):
             #print("setting %s to %s"%(col,meta))
             if col not in custom_columns:
                 logger.debug("%s not an existing column, skipping."%col)
@@ -2522,7 +2518,7 @@ class FanFicFarePlugin(InterfaceAction):
                     joined_val = joined_val.replace(', ',' & ')
                 self.set_custom(db, book_id, meta, joined_val, label, commit=False)
             elif coldef['datatype'] in ('int','float'):
-                num = unicode(book['all_metadata'][meta]).replace(",","")
+                num = str(book['all_metadata'][meta]).replace(",","")
                 if num != '':
                     self.set_custom(db, book_id, meta, num, label=label, commit=False)
             elif coldef['datatype'] == 'bool' and meta.startswith('status-'):
@@ -2591,7 +2587,7 @@ class FanFicFarePlugin(InterfaceAction):
                                     else:
                                         val = sum(items)
                             else:
-                                val = unicode(val).replace(",","")
+                                val = str(val).replace(",","")
                         else:
                             val = val
                         if coldef['datatype'] == 'bool':
@@ -2759,7 +2755,7 @@ class FanFicFarePlugin(InterfaceAction):
                 #print("cover_path:%s"%cover_path)
                 opts = ALL_OPTS.copy()
                 opts.update(data)
-                O = namedtuple('Options', ' '.join(six.iterkeys(ALL_OPTS)))
+                O = namedtuple('Options', ' '.join(iter(ALL_OPTS.keys())))
                 opts = O(**opts)
 
                 log = Log(level=Log.DEBUG)
@@ -3115,7 +3111,7 @@ The previously downloaded book is still in the anthology, but FFF doesn't have t
 
             # copy list all_metadata
             if 'all_metadata' in b:
-                for (k,v) in six.iteritems(b['all_metadata']):
+                for (k,v) in iter(b['all_metadata'].items()):
                     #print("merge_meta_books v:%s k:%s"%(v,k))
                     if k in ('numChapters','numWords'):
                         if k in b['all_metadata'] and b['all_metadata'][k]:
@@ -3123,7 +3119,7 @@ The previously downloaded book is still in the anthology, but FFF doesn't have t
                                 book['all_metadata'][k] = b['all_metadata'][k]
                             else:
                                 # lot of work for a simple add.
-                                book['all_metadata'][k] = unicode(int(book['all_metadata'][k].replace(',',''))+int(b['all_metadata'][k].replace(',','')))
+                                book['all_metadata'][k] = str(int(book['all_metadata'][k].replace(',',''))+int(b['all_metadata'][k].replace(',','')))
                     elif k in ('dateUpdated','datePublished','dateCreated',
                                'series','status','title'):
                         pass # handled above, below or skip these for now, not going to do anything with them.

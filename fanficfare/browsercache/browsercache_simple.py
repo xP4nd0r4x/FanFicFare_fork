@@ -23,7 +23,7 @@ import time, datetime
 import re
 import traceback
 
-from ..six import ensure_binary, ensure_text
+from ..ensure import ensure_binary, ensure_text
 from ..exceptions import BrowserCacheException
 from .share_open import share_open
 
@@ -125,12 +125,12 @@ class SimpleCache(BaseChromiumCache):
                     if file_key != key:
                         # theoretically, there can be hash collision.
                         continue
-                    logger.debug("en_fl:%s"%en_fl)
+                    # logger.debug("en_fl:%s"%en_fl)
                     (request_time, response_time, header_size) = _read_meta_headers(entry_file)
-                    logger.debug("request_time:  %s (%s)"%(datetime.datetime.fromtimestamp(self.make_age(request_time)),request_time))
-                    logger.debug("response_time: %s (%s)"%(datetime.datetime.fromtimestamp(self.make_age(response_time)),response_time))
+                    # logger.debug("request_time:  %s (%s)"%(datetime.datetime.fromtimestamp(self.make_age(request_time)),request_time))
+                    # logger.debug("response_time: %s (%s)"%(datetime.datetime.fromtimestamp(self.make_age(response_time)),response_time))
                     headers = _read_headers(entry_file,header_size)
-                    logger.debug(headers)
+                    # logger.debug(headers)
                     ## seen both Location and location
                     location = headers.get('location','')
                     # don't need data when redirect
@@ -278,8 +278,8 @@ def _read_headers(entry_file,header_size):
     # It is a series of null terminated strings, first is status code,e.g., "HTTP/1.1 200"
     # the rest are name:value pairs used to populate the headers dict.
     data = entry_file.read(header_size)
-    logger.debug("header_size:%s"%header_size)
-    logger.debug(data)
+    # logger.debug("header_size:%s"%header_size)
+    # logger.debug(data)
     strings = data.decode('utf-8').split('\0')
     headers = dict([ (y[0].lower(),y[1]) for y in [s.split(':', 1) for s in strings[1:] if ':' in s]])
     return headers

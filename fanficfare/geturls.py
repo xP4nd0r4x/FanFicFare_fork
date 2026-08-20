@@ -15,17 +15,14 @@
 # limitations under the License.
 #
 
-from __future__ import absolute_import
 import collections
 import email
 import imaplib
 import re
 
-# unicode in py2, str in py3
-from .six.moves.urllib.request import urlopen
-from .six.moves.urllib.parse import (urlparse, urlunparse)
-from .six import text_type as unicode
-from .six import ensure_str
+from urllib.request import urlopen
+from urllib.parse import urljoin
+from .ensure import ensure_str
 
 import logging
 logger = logging.getLogger(__name__)
@@ -69,7 +66,7 @@ def get_urls_from_html(data,url=None,configuration=None,normalize=False,foremail
         ## soup and re-soup because BS4/html5lib is more forgiving of
         ## incorrectly nested tags that way.
         # logger.debug("dbl souping")
-        soup = BeautifulSoup(unicode(BeautifulSoup(data,"html5lib")),"html5lib")
+        soup = BeautifulSoup(str(BeautifulSoup(data,"html5lib")),"html5lib")
 
     for a in soup.find_all('a'):
         if a.has_attr('href'):
@@ -128,29 +125,8 @@ def get_urls_from_text(data,configuration=None,normalize=False,foremail=False):
 def form_url(parenturl,url):
      url = url.strip() # ran across an image with a space in the
                        # src. Browser handled it, so we'd better, too.
-
-     if "//" in url or parenturl == None:
-         returl = url
-     else:
-         parsedUrl = urlparse(parenturl)
-         if url.startswith("/") :
-             returl = urlunparse(
-                 (parsedUrl.scheme,
-                  parsedUrl.netloc,
-                  url,
-                  '','',''))
-         else:
-             toppath=""
-             if parsedUrl.path.endswith("/"):
-                 toppath = parsedUrl.path
-             else:
-                 toppath = parsedUrl.path[:parsedUrl.path.rindex('/')]
-             returl = urlunparse(
-                 (parsedUrl.scheme,
-                  parsedUrl.netloc,
-                  toppath + '/' + url,
-                  '','',''))
-     return returl
+     retval = urljoin(parenturl,url)
+     return retval
 
 def cleanup_url(href,configuration,foremail=False):
     ## used to perform some common URL clean up.
@@ -296,7 +272,7 @@ def get_urls_from_mime(mime_data):
             # logger.debug("filename:%s"%f)
             if f.endswith(".eml"):
                 # logger.debug("calling urlopen(%s)"%f)
-                # continue using .six.moves.urllib.request.urlopen,
+                # continue using urlopen,
                 # should only ever be file://
                 fhandle = urlopen(f)
                 if hasattr(email,'message_from_binary_file'):

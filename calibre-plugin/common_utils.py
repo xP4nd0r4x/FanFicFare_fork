@@ -1,8 +1,5 @@
 # -*- coding: utf-8 -*-
 
-from __future__ import (unicode_literals, division, absolute_import,
-                        print_function)
-
 __license__   = 'GPL v3'
 __copyright__ = '2011, Grant Drake <grant.drake@gmail.com>, 2018, Jim Miller'
 __docformat__ = 'restructuredtext en'
@@ -21,9 +18,6 @@ from calibre.gui2.actions import menu_action_unique_name
 from calibre.gui2.keyboard import ShortcutConfig
 from calibre.utils.config import config_dir
 from calibre.utils.date import now, format_date, qt_to_dt, UNDEFINED_DATE
-
-import fanficfare.six as six
-from six import text_type as unicode
 
 # Global definition of our plugin name. Used for common functions that require this.
 plugin_name = None
@@ -369,7 +363,7 @@ class PrefsViewerDialog(SizePersistedDialog):
     def _populate_settings(self):
         self.keys_list.clear()
         ns_prefix = self._get_ns_prefix()
-        keys = sorted([k[len(ns_prefix):] for k in six.iterkeys(self.db.prefs)
+        keys = sorted([k[len(ns_prefix):] for k in iter(self.db.prefs.keys())
                        if k.startswith(ns_prefix)])
         for key in keys:
             self.keys_list.addItem(key)
@@ -380,7 +374,7 @@ class PrefsViewerDialog(SizePersistedDialog):
         if new_row < 0:
             self.value_text.clear()
             return
-        key = unicode(self.keys_list.currentItem().text())
+        key = str(self.keys_list.currentItem().text())
         val = self.db.prefs.get_namespaced(self.namespace, key, '')
         self.value_text.setPlainText(self.db.prefs.to_raw(val))
 
@@ -404,7 +398,7 @@ class PrefsViewerDialog(SizePersistedDialog):
         if not confirm(message, self.namespace+'_save_settings', self):
             return
         ns_prefix = self._get_ns_prefix()
-        key = unicode(self.keys_list.currentItem().text())
+        key = str(self.keys_list.currentItem().text())
         self.db.prefs.set_namespaced(self.namespace, key,
                                      self.db.prefs.raw_to_object(self.value_text.toPlainText()))
         d = info_dialog(self, 'Settings saved',
@@ -432,7 +426,7 @@ class PrefsViewerDialog(SizePersistedDialog):
         if not confirm(message, self.namespace+'_clear_settings', self):
             return
         ns_prefix = self._get_ns_prefix()
-        keys = [k for k in six.iterkeys(self.db.prefs) if k.startswith(ns_prefix)]
+        keys = [k for k in iter(self.db.prefs.keys()) if k.startswith(ns_prefix)]
         for k in keys:
             del self.db.prefs[k]
         self._populate_settings()

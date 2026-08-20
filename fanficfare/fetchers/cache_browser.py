@@ -15,14 +15,13 @@
 # limitations under the License.
 #
 
-from __future__ import absolute_import
 import logging
 logger = logging.getLogger(__name__)
 
 import threading
 import traceback
 import time
-from ..six.moves.urllib.parse import urlparse
+from urllib.parse import urlparse
 
 from .. import exceptions
 
@@ -71,7 +70,7 @@ class BrowserCacheDecorator(FetcherDecorator):
                         428, # 404 & 410 trip StoryDoesNotExist
                              # 428 ('Precondition Required') gets the
                              # error_msg through to the user.
-                        "open_pages_in_browser_tries_limit exceeded for site (%s), assuming site is off line."%parsedUrl.netloc,
+                        "open_pages_in_browser_tries_limit exceeded for site (%s), assuming site is off line until after next (Calibre) restart."%parsedUrl.netloc,
                         None # data
                         )
 

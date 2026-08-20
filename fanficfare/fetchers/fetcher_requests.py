@@ -15,12 +15,10 @@
 # limitations under the License.
 #
 
-from __future__ import absolute_import
 import logging
 logger = logging.getLogger(__name__)
 
 # py2 vs py3 transition
-from ..six import text_type as unicode
 from .. import exceptions
 
 from urllib3.util.retry import Retry
@@ -143,9 +141,8 @@ class RequestsFetcher(Fetcher):
                                    resp_json)
         except RequestsHTTPError as e:
             ## not RequestsHTTPError(requests.exceptions.HTTPError) or
-            ## .six.moves.urllib.error import HTTPError because we
-            ## want code *and* content for that one trekfanfiction
-            ## catch.
+            ## urllib.error import HTTPError because we want code
+            ## *and* content for that one trekfanfiction catch.
             raise exceptions.HTTPErrorFFF(
                 url,
                 e.response.status_code,

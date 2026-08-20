@@ -15,13 +15,12 @@
 # limitations under the License.
 #
 
-from __future__ import absolute_import
 import os, re, sys, types
 from contextlib import contextmanager
 import logging
 
-# py2 vs py3 transition
-from ..six.moves.urllib.parse import urlparse
+
+from urllib.parse import urlparse
 
 logger = logging.getLogger(__name__)
 
@@ -141,6 +140,8 @@ from . import adapter_spiritfanfictioncom
 from . import adapter_authortoday
 from . import adapter_tlrulateru
 from . import adapter_althistorycom
+from . import adapter_pmdfanfiction
+from . import adapter_sofurrycom
 
 ## This bit of complexity allows adapters to be added by just adding
 ## importing.  It eliminates the long if/else clauses we used to need

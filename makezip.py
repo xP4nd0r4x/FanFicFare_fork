@@ -15,14 +15,12 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from __future__ import absolute_import
 import os
 import zipfile
 from glob import glob
-from six import text_type as unicode
 
 def addFolderToZip(myZipFile,folder,exclude=[]):
-    folder = unicode(folder) #convert path to ascii for ZipFile Method
+    folder = str(folder) #convert path to ascii for ZipFile Method
     excludelist=[]
     for ex in exclude:
         excludelist.extend(glob(folder+"/"+ex))
@@ -46,7 +44,7 @@ def createZipFile(filename,mode,files,exclude=[]):
         # print("file:"+file)
         if os.path.isfile(file):
             (filepath, filename) = os.path.split(file)
-            myZipFile.write( file, unicode(filename), zipfile.ZIP_DEFLATED )
+            myZipFile.write( file, str(filename), zipfile.ZIP_DEFLATED )
         if os.path.isdir(file):
             addFolderToZip(myZipFile,file,exclude=exclude)
     myZipFile.close()

@@ -15,7 +15,6 @@
 # limitations under the License.
 #
 
-from __future__ import absolute_import
 import logging
 logger = logging.getLogger(__name__)
 import re
@@ -25,13 +24,24 @@ from bs4.element import Comment
 from ..htmlcleanup import stripHTML
 from .. import exceptions as exceptions
 
-# py2 vs py3 transition
-from ..six import text_type as unicode
-from ..six.moves.urllib import parse as urlparse
+
+from urllib import parse as urlparse
 
 from .base_adapter import BaseSiteAdapter, makeDate
 
-LANG_LIST = ('www','german','spanish','french','dutch','italian','romanian','portuguese','other')
+LANG_LIST = ('www', 'spanish', 'german', 'french', 'dutch', 'italian',
+             'romanian', 'portuguese', 'afrikaans', 'bengali', 'chinese', 'danish',
+             'esperanto', 'finnish', 'japanese', 'norwegian', 'polish', 'russian',
+             'serbian', 'swedish', 'turkish', 'urdu', 'malayalam', 'hindi',
+             'marathi', 'tamil', 'telugu', 'arabic', 'magahi', 'soninke', 'hausa',
+             'tagalog', 'madurese', 'greek', 'javanese', 'pular', 'nynorsk',
+             'sinhala', 'waray', 'bhojpuri', 'gujarati', 'tiv', 'iloko',
+             'sundanese', 'hungarian', 'albanian', 'buginese', 'kapampangan',
+             'sardinian', 'croatian', 'persian', 'bosnian', 'balkan-romani',
+             'bulgarian', 'catalan', 'ukrainian', 'kannada', 'punjabi',
+             'indonesian', 'czech', 'swahili', 'haitian-creole', 'vietnamese',
+             'somali', 'hebrew', 'yiddish', 'korean', 'nepali', 'latin',
+             'slovenian', 'odia', 'scottish-gaelic', 'other',)
 LANG_RE = r"(?P<lang>" + r"|".join(LANG_LIST) + r")"
 
 class LiteroticaSiteAdapter(BaseSiteAdapter):
@@ -159,8 +169,10 @@ class LiteroticaSiteAdapter(BaseSiteAdapter):
         (data,rurl) = self.get_request_redirected(self.url)
         # logger.debug(data)
         ## for language domains
+        logger.debug("set opened url:%s"%rurl)
+        if rurl == 'https://www.literotica.com/':
+            raise exceptions.StoryDoesNotExist("Story Not Found on Site %s"%self.url)
         self._setURL(rurl)
-        logger.debug("set opened url:%s"%self.url)
         soup = self.make_soup(data)
 
         if "This submission is awaiting moderator's approval" in data:
@@ -194,17 +206,11 @@ class LiteroticaSiteAdapter(BaseSiteAdapter):
                 logger.debug("One-shot")
 
         isSingleStory = '/series/se' not in self.url
-
-        if not isSingleStory:
-            # Normilize the url?
-            state = re.findall(r"prefix\=\"/series/\",state='(.+?)'</script>", data)
-            json_state = json.loads(state[0].replace("\\'","'").replace("\\\\","\\"))
-            url_series_id = unicode(re.match(self.getSiteURLPattern(),self.url).group('storyseriesid'))
-            json_series_id = unicode(json_state['series']['data']['id'])
-            if json_series_id != url_series_id:
-                res = re.sub(url_series_id, json_series_id, unicode(self.url))
-                logger.debug("Normalized url: %s"%res)
-                self._setURL(res)
+        # Extracting the '$R[8]' manually as my hope that this will be more resilinat as i'm betting
+        # on the structure remaining unchanged even when the data will move.
+        story_jsdict_point = re.search(r'_\$HY\.r\[\"(?:seriesInfo|workData)\[\\\".+?\"]=\$R\[\d+]=\((.+?)=', data).group(1)
+        story_jsdict = re.search(r'\(' + re.escape(story_jsdict_point) + r',\$R\[\d+?]=(.+?)_\$HY\.r', data).group(1)
+        js_series_id = None
 
         ## common between one-shots and multi-chapters
         # title
@@ -232,7 +238,9 @@ class LiteroticaSiteAdapter(BaseSiteAdapter):
         if '?' in authorurl:
             self.story.setMetadata('authorId', urlparse.parse_qs(authorurl.split('?')[1])['uid'][0])
         elif '/authors/' in authorurl:
-            self.story.setMetadata('authorId', authorurl.split('/')[-1])
+            authorurl_list = authorurl.split('/')
+            logger.debug(authorurl_list[authorurl_list.index('authors')+1])
+            self.story.setMetadata('authorId', authorurl_list[authorurl_list.index('authors')+1])
         else: # if all else fails
             self.story.setMetadata('authorId', stripHTML(authora))
 
@@ -247,28 +255,28 @@ class LiteroticaSiteAdapter(BaseSiteAdapter):
         ## look first for 'Series Introduction', then Info panel short desc
         ## series can have either, so put in common code.
         desc = []
-        introtag = soup.select_one('div.bp_rh')
+        introtag = soup.select_one('div[class^="_content_"] > div[class^="_introduction-wrap"] > p')
         descdiv = soup.select_one('div#tabpanel-info div.bn_B') or \
                   soup.select_one('div[class^="_tab__pane_"] div[class^="_widget__info_"]')
         if introtag and stripHTML(introtag):
             # make sure there's something in the tag.
             # logger.debug("intro %s"%introtag)
-            desc.append(unicode(introtag))
+            desc.append(str(introtag))
         elif descdiv and stripHTML(descdiv):
             # make sure there's something in the tag.
             # logger.debug("desc %s"%descdiv)
-            desc.append(unicode(descdiv))
+            desc.append(str(descdiv))
         if not desc or self.getConfig("include_chapter_descriptions_in_summary"):
             ## Only for backward compatibility with 'stories' that
             ## don't have an intro or short desc.
             descriptions = []
-            for i, chapterdesctag in enumerate(soup.select('p.br_rk')):
+            for i, chapterdesctag in enumerate(soup.select('section ul[class^="_list_"] p[class^="_description_"]')):
                 # remove category link, but only temporarily
                 a = chapterdesctag.a.extract()
                 descriptions.append("%d. %s" % (i + 1, stripHTML(chapterdesctag)))
                 # now put it back--it's used below
                 chapterdesctag.append(a)
-            desc.append(unicode("<p>"+"</p>\n<p>".join(descriptions)+"</p>"))
+            desc.append(str("<p>"+"</p>\n<p>".join(descriptions)+"</p>"))
 
         self.setDescription(self.url,u''.join(desc))
 
@@ -309,8 +317,11 @@ class LiteroticaSiteAdapter(BaseSiteAdapter):
             self.add_chapter(self.story.getMetadata('title'), self.url)
 
         else:
+            js_series_id = str(re.search(r'{id:(\d+?),', story_jsdict).group(1))
+            seriesWorks_jsdict_point = re.search(r'_\$HY\.r\[\"(?:seriesWorks)\[\\\".+?\"]=\$R\[\d+]=\((.+?)=', data).group(1)
+            story_jsdict += re.search(r']\(' + re.escape(seriesWorks_jsdict_point) + r'(.+?)}]\);', data).group(1)
             ## Multi-chapter stories.  AKA multi-part 'Story Series'.
-            bn_antags = soup.select('div#tabpanel-info p.bn_an')
+            bn_antags = soup.select('div[class^="_date_container_"] > div[class^="_files__date_"]')
             # logger.debug(bn_antags)
             if bn_antags and not self.getConfig("dates_from_chapters"):
                 ## Use dates from series metadata unless dates_from_chapters is enabled
@@ -325,17 +336,18 @@ class LiteroticaSiteAdapter(BaseSiteAdapter):
                 self.story.setMetadata('datePublished', makeDate(dates[0], self.dateformat))
                 self.story.setMetadata('dateUpdated', makeDate(dates[1], self.dateformat))
 
-            ## bn_antags[2] contains "The author has completed this series." or "The author is still actively writing this series."
-            ## I won't be surprised if this breaks later because of lang localization
-            if "completed" in stripHTML(bn_antags[-1]):
+            if "completed" in re.search(r'state:\"(.+?)\",', story_jsdict).group(1):
                 self.story.setMetadata('status','Completed')
             else:
                 self.story.setMetadata('status','In-Progress')
 
             ## category from chapter list
-            self.story.extendList('category',[ stripHTML(t) for t in soup.select('a.br_rl') ])
+            self.story.extendList('category',[ stripHTML(t) for t in soup.select('section p[class^="_description_"] > a') ])
 
-            for chapteratag in soup.select('a.br_rj'):
+            if self.getConfig("tags_from_chapters"):
+                self.story.extendList('eroticatags', [str(t).title() for t in re.findall(r'tag:\"(.+?)\",', story_jsdict)])
+
+            for chapteratag in soup.select('section li[class^="_item_"] > a'):
                 chapter_title = stripHTML(chapteratag)
                 # logger.debug('\tChapter: "%s"' % chapteratag)
                 # /series/se does include full URLs current.
@@ -351,53 +363,32 @@ class LiteroticaSiteAdapter(BaseSiteAdapter):
         #### Attempting averrating from JS metadata.
         #### also alternate chapters from json
         try:
-            state_start="state='"
-            state_end="'</script>"
-            i = data.index(state_start)
-            if i:
-                state = data[i+len(state_start):data.index(state_end,i)].replace("\\'","'").replace("\\\\","\\")
-                if state:
-                    # logger.debug(state)
-                    json_state = json.loads(state)
-                    # logger.debug(json.dumps(json_state, sort_keys=True,indent=2, separators=(',', ':')))
-                    all_rates = []
-                    if 'series' in json_state:
-                        all_rates = [ float(x['rate_all']) for x in json_state['series']['works'] ]
+            all_rates = [float(x) for x in re.findall(r'rate_all:([\d\.]+?),', story_jsdict)]
 
-                        ## Extract dates from chapter approval dates if dates_from_chapters is enabled
-                        if self.getConfig("dates_from_chapters"):
-                            date_approvals = []
-                            for work in json_state['series']['works']:
-                                if 'date_approve' in work:
-                                    try:
-                                        date_approvals.append(makeDate(work['date_approve'], self.dateformat))
-                                    except:
-                                        pass
-                            if date_approvals:
-                                # Oldest date is published, newest is updated
-                                date_approvals.sort()
-                                self.story.setMetadata('datePublished', date_approvals[0])
-                                self.story.setMetadata('dateUpdated', date_approvals[-1])
-                    if all_rates:
-                        self.story.setMetadata('averrating', '%4.2f' % (sum(all_rates) / float(len(all_rates))))
+            ## Extract dates from chapter approval dates if dates_from_chapters is enabled
+            if self.getConfig("dates_from_chapters"):
+                date_approvals = [makeDate(x, self.dateformat) for x in re.findall(r'date_approve:\"(.+?)\",', story_jsdict)]
+                # logger.debug(date_approvals)
+                if date_approvals:
+                    # Oldest date is published, newest is updated
+                    date_approvals.sort()
+                    self.story.setMetadata('datePublished', date_approvals[0])
+                    self.story.setMetadata('dateUpdated', date_approvals[-1])
+            if all_rates:
+                self.story.setMetadata('averrating', '%4.2f' % (sum(all_rates) / float(len(all_rates))))
 
-                    ## alternate chapters from JSON
-                    if self.num_chapters() < 1:
-                        logger.debug("Getting Chapters from series JSON")
-                        seriesid = json_state.get('series',{}).get('data',{}).get('id',None)
-                        if seriesid:
-                            logger.info("Fetching chapter data from JSON")
-                            logger.debug(seriesid)
-                            series_json = json.loads(self.get_request('https://literotica.com/api/3/series/%s/works'%seriesid))
-                            # logger.debug(json.dumps(series_json, sort_keys=True,indent=2, separators=(',', ':')))
-                            for chap in series_json:
-                                self.add_chapter(chap['title'], 'https://www.literotica.com/s/'+chap['url'])
+            ## alternate chapters from JSON
+            if self.num_chapters() < 1 and js_series_id:
+                logger.info("Fetching chapter data from JSON")
+                logger.debug(js_series_id)
+                series_json = json.loads(self.get_request('https://literotica.com/api/3/series/%s/works'%js_series_id))
+                # logger.debug(json.dumps(series_json, sort_keys=True,indent=2, separators=(',', ':')))
+                for chap in series_json:
+                    self.add_chapter(chap['title'], 'https://www.literotica.com/s/'+chap['url'])
 
-                                ## Collect tags from series/story page if tags_from_chapters is enabled
-                                if self.getConfig("tags_from_chapters"):
-                                    self.story.extendList('eroticatags', [ unicode(t['tag']).title() for t in chap['tags'] ])
-
-
+                    ## Collect tags from series/story page if tags_from_chapters is enabled
+                    if self.getConfig("tags_from_chapters"):
+                        self.story.extendList('eroticatags', [ str(t['tag']).title() for t in chap['tags'] ])
         except Exception as e:
             logger.warning("Processing JSON failed. (%s)"%e)
 
@@ -416,7 +407,7 @@ class LiteroticaSiteAdapter(BaseSiteAdapter):
         fullhtml = ""
         for aa_ht_div in page_soup.find_all('div', 'aa_ht') + page_soup.select('div[class^="_article__content_"]'):
             if aa_ht_div.div:
-                html = unicode(aa_ht_div.div)
+                html = str(aa_ht_div.div)
                 # Strip some starting and ending tags,
                 html = re.sub(r'^<div.*?>', r'', html)
                 html = re.sub(r'</div>$', r'', html)
@@ -431,13 +422,7 @@ class LiteroticaSiteAdapter(BaseSiteAdapter):
 
         raw_page = self.get_request(url)
         page_soup = self.make_soup(raw_page)
-        pages = page_soup.find('div',class_='l_bH')
-        if not pages:
-            pages = page_soup.select_one('div._pagination_h0sum_1')
-        if not pages:
-            pages = page_soup.select_one('div.clearfix.panel._pagination_1400x_1')
-        if not pages:
-            pages = page_soup.select_one('div[class^="panel clearfix _pagination_"]')
+        pages = page_soup.select_one('nav[class^="panel clearfix _pagination_"]')
         # logger.debug(pages)
 
         fullhtml = ""
@@ -467,7 +452,7 @@ class LiteroticaSiteAdapter(BaseSiteAdapter):
         page_soup = self.make_soup(fullhtml)
         fullhtml = self.utf8FromSoup(url, self.make_soup(fullhtml))
         fullhtml = chapter_description + fullhtml
-        fullhtml = unicode(fullhtml)
+        fullhtml = str(fullhtml)
 
         return fullhtml
 
@@ -499,10 +484,11 @@ class LiteroticaSiteAdapter(BaseSiteAdapter):
 
         # Grabbing the main list where chapters are contained.
         if user_story_list:
-            js_story_list = re.search(r';\$R\[\d+?\]\(\$R\[\d+?\],\$R\[\d+?\]\);\$R\[\d+?\]\(\$R\[\d+?\],\$R\[\d+?\]=\{success:!\d,current_page:(?P<current_page>\d+?),last_page:(?P<last_page>\d+?),total:\d+?,per_page:\d+,(has_series:!\d)?data:\$R\[\d+?\]=\[\$R\[\d+?\]=(?P<data>.+)\}\]\}\);', data) # }] } } });  \$R\[\d+?\]\(\$R\[\d+?\],\$R\[\d+?\]\);\$R\[\d+?]\(\$R\[\d+?\],\$R\[\d+?\]=\{sliders:
+            list_id_jsdict = re.search(r"_\$HY\.r\[\"AuthorListQuery\[\\\"[^'\"]+\",(?P<list_id>\d+),\d+]\"]=\$R\[\d+\]=\((?P<list_jsdict>\$R\[\d+])=", data)
+            js_story_list = re.search(r'\$R\[\d+]\(' + re.escape(list_id_jsdict.group('list_jsdict')) + r',\$R\[\d+]={success:!\d,current_page:(?P<current_page>\d+?),last_page:(?P<last_page>\d+?),total:(?P<total_works>\d+),(?P<data>.+?)}]}\);(?P<extra_data>)', data)
             logger.debug('user_story_list ID [%s]'%user_story_list.group('list_id'))
         else:
-            js_story_list = re.search(r'\$R\[\d+?\]\(\$R\[\d+?\],\$R\[\d+?\]={current_page:(?P<current_page>\d+?),last_page:(?P<last_page>\d+?),total:\d+?,per_page:\d+,(has_series:!\d,)?data:\$R\[\d+\]=\[\$R\[\d+\]=\{(?!aim)(?P<data>.+)\}\);_\$HY\.r\[', data)
+            js_story_list = re.search(r'\$R\[\d+?\]\(\$R\[\d+?\],\$R\[\d+?\]={current_page:(?P<current_page>\d+?),last_page:(?P<last_page>\d+?),total:(?P<total_works>\d+?),per_page:\d+,(has_series:!\d,)?(?P<data>data:\$R\[\d+\]=\[\$R\[\d+\]=\{(?!aim).+)\}\);_\$HY\.r\[(?:.*?\$R\[\d+?\]={has_series:!\d,data:\$R\[\d+?\]=(?P<extra_data>.+?)words_count:\d+}]}\);|.*)', data)
 
         # In case the regex becomes outdated
         if not js_story_list:
@@ -526,30 +512,41 @@ class LiteroticaSiteAdapter(BaseSiteAdapter):
         # Extract the current (should be 1) and last page numbers from the js.
         logger.debug("Pages %s/%s"%(js_story_list.group('current_page'), js_story_list.group('last_page')))
 
-        urls = []
+        urls = list()
         # Necessary to format a proper link as there were no visible data specifying what kind of link that should be.
         cat_to_link = {'adult-comics': 'i', 'erotic-art': 'i', 'illustrated-poetry': 'p', 'erotic-audio-poetry': 'p', 'erotic-poetry': 'p', 'non-erotic-poetry': 'p'}
-        stories_found = re.findall(r"category_info:\$R\[.*?type:\".+?\",pageUrl:\"(.+?)\"}.+?,type:\"(.+?)\",url:\"(.+?)\",", js_story_list.group('data'))
-        for story in stories_found:
-            story_category, story_type, story_url = story
-            urls.append('https://www.literotica.com/%s/%s'%(cat_to_link.get(story_category, 's'), story_url))
+        stories_found = re.findall(r"\$R\[\d+?\]={(?:allow_vote.+?,type:\"([^\"]+)\",url:\"([^\"]+)\",view_count|id:(\d+),user_id:\d+,url:\"([^\"]*)\",created_at:)", js_story_list.group('data'))
+        if js_story_list.group('extra_data'):
+            stories_found.extend(re.findall(r"\$R\[\d+?\]={(?:allow_vote.+?,type:\"([^\"]+)\",url:\"([^\"]+)\",view_count|id:(\d+),user_id:\d+,url:\"([^\"]*)\",created_at:)", js_story_list.group('extra_data')))
 
-        # Removes the duplicates
-        seen = set()
-        urls = [x for x in (page_urls + urls) if not (x in seen or seen.add(x))]
+        for match in stories_found:
+            if match[3]:
+                urls.append('https://www.literotica.com/series/se/%s'% match[3])
+                continue
+            if match[2]:
+                urls.append('https://www.literotica.com/series/se/%s'% match[2])
+                continue
+            urls.append('https://www.literotica.com/%s/%s'%(cat_to_link.get(match[0], 's'), match[1]))
+
+        page_urls.extend(urls)
+        urls = list(dict.fromkeys(urls))
+
         logger.debug("Found [%s] stories so far."%len(urls))
 
         # Sometimes the rest of the stories are burried in the js so no fetching in necessery.
-        if js_story_list.group('last_page') == js_story_list.group('current_page'):
+        # Site started to include all stories in the js skipping the requirement to fetch them from API.
+        if js_story_list.group('last_page') == js_story_list.group('current_page') or int(js_story_list.group('total_works')) <= len(urls):
+            logger.debug("Indicated total works [%s]",js_story_list.group('total_works'))
             return {'urllist': urls}
 
         user = urlparse.quote(user.group(1))
         logger.debug("Escaped user: [%s]"%user)
 
+        category = None
         if written:
-            category = re.search(r"_\$HY\.r\[\"AuthorSeriesAndWorksQuery\[\\\".+?\\\",\\\"\D+?\\\",\\\"(?P<type>\D+?)\\\"\]\"\]=\$R\[\d+?\]=\$R\[\d+?\]\(\$R\[\d+?\]=\{", data)
+            category = re.search(r"_\$HY\.r\[\"AuthorSeriesAndWorksQuery\[\\\"\S+?\",\d+?,\\\"date\\\",\\\"(?P<type>\D+?)\\\"", data)
         elif fav_authors:
-            category = re.search(r"_\$HY\.r\[\"AuthorFavoriteWorksQuery\[\\\".+?\\\",\\\"(?P<type>\D+?)\\\",\d\]\"\]=\$R\[\d+?\]=\$R\[\d+?\]\(\$R\[\d+?\]={", data)
+            category = re.search(r"_\$HY\.r\[\"AuthorFavoriteWorksQuery\[\\\".+?\\\",\\\"(?P<type>\D+?)\\\",", data)
 
         if not user_story_list and not category:
             logger.debug("Type of works not found")
@@ -582,10 +579,7 @@ class LiteroticaSiteAdapter(BaseSiteAdapter):
                     urls.append('https://www.literotica.com/%s/%s'%(cat_to_link.get(series_story["category_info"]["pageUrl"], 's'), str(series_story['url'])))
             logger.debug("Found [%s] stories."%(len(urls) - i))
 
-        # Again removing duplicates.
-        seen = set()
-        urls = [x for x in urls if not (x in seen or seen.add(x))]
-
+        urls = list(dict.fromkeys(urls))
         logger.debug("Found total of [%s] stories"%len(urls))
         return {'urllist':urls}
 

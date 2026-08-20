@@ -1,27 +1,24 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
-from __future__ import (unicode_literals, division, absolute_import,
-                        print_function)
-
 __license__   = 'GPL v3'
 __copyright__ = '2019, Jim Miller'
 __docformat__ = 'restructuredtext en'
 
-import sys, os
-if sys.version_info >= (2, 7):
-    import logging
-    logger = logging.getLogger(__name__)
-    loghandler=logging.StreamHandler()
-    loghandler.setFormatter(logging.Formatter("FFF: %(levelname)s: %(asctime)s: %(filename)s(%(lineno)d): %(message)s"))
-    logger.addHandler(loghandler)
+import os
 
-    from calibre.constants import DEBUG
-    if os.environ.get('CALIBRE_WORKER', None) is not None or DEBUG:
-        loghandler.setLevel(logging.DEBUG)
-        logger.setLevel(logging.DEBUG)
-    else:
-        loghandler.setLevel(logging.CRITICAL)
-        logger.setLevel(logging.CRITICAL)
+import logging
+logger = logging.getLogger(__name__)
+loghandler=logging.StreamHandler()
+loghandler.setFormatter(logging.Formatter("FFF: %(levelname)s: %(asctime)s: %(filename)s(%(lineno)d): %(message)s"))
+logger.addHandler(loghandler)
+
+from calibre.constants import DEBUG
+if os.environ.get('CALIBRE_WORKER', None) is not None or DEBUG:
+    loghandler.setLevel(logging.DEBUG)
+    logger.setLevel(logging.DEBUG)
+else:
+    loghandler.setLevel(logging.CRITICAL)
+    logger.setLevel(logging.CRITICAL)
 
 # pulls in translation files for _() strings
 try:
@@ -33,7 +30,7 @@ except NameError:
 from calibre.customize import InterfaceActionBase
 
 # pulled out from FanFicFareBase for saving in prefs.py
-__version__ = (4, 58, 1)
+__version__ = (4, 60, 5)
 
 ## Apparently the name for this class doesn't matter--it was still
 ## 'demo' for the first few versions.
@@ -128,7 +125,7 @@ class FanFicFareBase(InterfaceActionBase):
             from calibre.library import db
             from fanficfare.cli import main as fff_main
             from calibre_plugins.fanficfare_plugin.prefs import PrefsFacade
-            from fanficfare.six import ensure_text
+            from fanficfare.ensure import ensure_text
             from optparse import OptionParser
 
             parser = OptionParser('%prog --run-plugin '+self.name+' -- [options] <storyurl>')

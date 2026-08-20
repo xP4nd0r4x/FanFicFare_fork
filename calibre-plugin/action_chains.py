@@ -1,6 +1,3 @@
-from __future__ import (unicode_literals, division, absolute_import,
-                        print_function)
-
 __license__   = 'GPL v3'
 __copyright__ = '2024, Jim Miller'
 __docformat__ = 'restructuredtext en'

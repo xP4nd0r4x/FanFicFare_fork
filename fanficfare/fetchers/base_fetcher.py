@@ -15,15 +15,13 @@
 # limitations under the License.
 #
 
-from __future__ import absolute_import
 import logging
 logger = logging.getLogger(__name__)
 
 # py2 vs py3 transition
-from ..six.moves.urllib.parse import quote_plus
-from ..six.moves.http_cookiejar import LWPCookieJar, MozillaCookieJar
-from ..six import text_type as unicode
-from ..six import ensure_binary
+from urllib.parse import quote_plus
+from http.cookiejar import LWPCookieJar, MozillaCookieJar
+from ..ensure import ensure_binary
 
 class FetcherResponse(object):
     def __init__(self,content,redirecturl=None,fromcache=False,json=None):
@@ -123,10 +121,12 @@ class Fetcher(object):
 
     def post_request(self, url,
                      parameters=None,
+                     referer=None,
                      usecache=True):
         fetchresp = self.do_request('POST',
                                      self.condition_url(url),
                                      parameters=parameters,
+                                     referer=referer,
                                      usecache=usecache)
         return fetchresp.content
 

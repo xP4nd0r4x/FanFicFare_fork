@@ -1,8 +1,5 @@
 # -*- coding: utf-8 -*-
 
-from __future__ import (absolute_import, unicode_literals, division,
-                        print_function)
-
 __license__   = 'GPL v3'
 __copyright__ = '2020, Jim Miller'
 __docformat__ = 'restructuredtext en'
@@ -39,7 +36,7 @@ show_download_options = 'fff:add new/update dialogs:show_download_options'
 from calibre.gui2.dialogs.confirm_delete import confirm
 from calibre.gui2.complete2 import EditWithComplete
 from fanficfare.exceptions import NotGoingToDownload
-from fanficfare.six import text_type as unicode, ensure_text
+from fanficfare.ensure import ensure_text
 
 # pulls in translation files for _() strings
 try:
@@ -426,7 +423,7 @@ class AddNewDialog(HotKeyedSizePersistedDialog):
                 self.mergedname.setVisible(False)
             d = extraoptions.get('frompage',{}).get('desc',None)
             if d:
-                self.mergeddesc.setText(unicode(d))
+                self.mergeddesc.setText(str(d))
             else:
                 self.mergeddesc.setVisible(False)
         else:
@@ -477,6 +474,8 @@ class AddNewDialog(HotKeyedSizePersistedDialog):
         if url_list_text:
             self.button_box.button(QDialogButtonBox.Ok).setFocus()
 
+        self.ini_snippet_text = None
+        self.populate_snip_combobox()
         self.ini_snip.setCurrentIndex(0)
 
         # restore saved size.
@@ -510,8 +509,8 @@ class AddNewDialog(HotKeyedSizePersistedDialog):
     def get_fff_options(self):
         retval = dict(self.extraoptions)
         retval.update( {
-                'fileform': unicode(self.fileform.currentText()),
-                'collision': unicode(self.collision.currentText()),
+                'fileform': str(self.fileform.currentText()),
+                'collision': str(self.collision.currentText()),
                 'updatemeta': self.updatemeta.isChecked(),
                 'bgmeta': False, # self.bgmeta.isChecked(),
                 'smarten_punctuation':self.prefs['smarten_punctuation'],
@@ -530,7 +529,7 @@ class AddNewDialog(HotKeyedSizePersistedDialog):
         return retval
 
     def get_urlstext(self):
-        return unicode(self.url.toPlainText())
+        return str(self.url.toPlainText())
 
 class FakeLineEdit():
     def __init__(self):
@@ -792,13 +791,13 @@ class _LoopProgressDialog(QProgressDialog):
             book['status']=_('Skipped')
             book['good']=False
             book['showerror']=d.showerror
-            book['comment']=unicode(d)
+            book['comment']=str(d)
             book['icon'] = d.icon
 
         except Exception as e:
             book['good']=False
             book['status']=_("Error")
-            book['comment']=unicode(e)
+            book['comment']=str(e)
             logger.error("Exception: %s:%s"%(book,book['comment']),exc_info=True)
 
         self.updateStatus()
@@ -893,12 +892,12 @@ italbold.setBold(True)
 # Share between AddNewDialog & UpdateExistingDialog
 def populate_snip_combobox(self,snip_name=None):
     self.ini_snip.clear()
-    self.ini_snip.addItem('No INI Snippet')
-    self.ini_snip.addItem('Edit One Time Snippet')
+    self.ini_snip.addItem(_('No INI Snippet'))
+    self.ini_snip.addItem(_('Edit One-Time Snippet'))
     self.ini_snip.setItemData(1, italbold, Qt.ItemDataRole.FontRole)
 
     if self.prefs['ini_snips']:
-        self.ini_snip.addItem('Saved Snippets')
+        self.ini_snip.addItem(_('Saved Snippets'))
         self.ini_snip.setItemData(self.ini_snip.count()-1, italic, Qt.ItemDataRole.FontRole)
         self.ini_snip.model().item(self.ini_snip.count()-1).setEnabled(False)
         for k in sorted(self.prefs['ini_snips'].keys()):
@@ -1122,8 +1121,8 @@ class UpdateExistingDialog(SizePersistedDialog):
 
     def get_fff_options(self):
         return {
-            'fileform': unicode(self.fileform.currentText()),
-            'collision': unicode(self.collision.currentText()),
+            'fileform': str(self.fileform.currentText()),
+            'collision': str(self.collision.currentText()),
             'updatemeta': self.updatemeta.isChecked(),
             'bgmeta': self.bgmeta.isChecked(),
             'smarten_punctuation':self.prefs['smarten_punctuation'],
@@ -1237,8 +1236,8 @@ class NotesWidgetItem(QTableWidgetItem):
         return self.content.currentText()
 
     def __lt__(self, other):
-        return (unicode(self.currentText()).lower().strip() <
-                unicode(other.currentText()).lower().strip())
+        return (str(self.currentText()).lower().strip() <
+                str(other.currentText()).lower().strip())
 
 class RejectListTableWidget(QTableWidget):
 
@@ -1403,11 +1402,11 @@ class RejectListDialog(SizePersistedDialog):
     def get_reject_list(self):
         rejectrows = []
         for row in range(self.rejects_table.rowCount()):
-            url = unicode(self.rejects_table.item(row, 0).text()).strip()
+            url = str(self.rejects_table.item(row, 0).text()).strip()
             book_id =self.rejects_table.item(row, 0).data(Qt.UserRole)
-            title = unicode(self.rejects_table.item(row, 1).text()).strip()
-            auth = unicode(self.rejects_table.item(row, 2).text()).strip()
-            note = unicode(self.rejects_table.cellWidget(row, 3).currentText()).strip()
+            title = str(self.rejects_table.item(row, 1).text()).strip()
+            auth = str(self.rejects_table.item(row, 2).text()).strip()
+            note = str(self.rejects_table.cellWidget(row, 3).currentText()).strip()
             rejectrows.append(RejectUrlEntry(url,note,title,auth,self.get_reason_text(),book_id=book_id,normalize=False))
         return rejectrows
 
@@ -1421,7 +1420,7 @@ class RejectListDialog(SizePersistedDialog):
 
     def get_reason_text(self):
         try:
-            return unicode(self.reason_edit.currentText()).strip()
+            return str(self.reason_edit.currentText()).strip()
         except:
             # doesn't have self.reason_edit when editing existing list.
             return None
@@ -1494,10 +1493,10 @@ class EditTextDialog(HotKeyedSizePersistedDialog):
         self.resize_dialog()
 
     def get_plain_text(self):
-        return unicode(self.textedit.toPlainText())
+        return str(self.textedit.toPlainText())
 
     def get_reason_text(self):
-        return unicode(self.reason_edit.currentText()).strip()
+        return str(self.reason_edit.currentText()).strip()
 
 class QTextEditPlainPaste(QTextEdit):
     def insertFromMimeData(self, mimeData):
@@ -1620,7 +1619,7 @@ class IniTextDialog(HotKeyedSizePersistedDialog):
             return SizePersistedDialog.accept(self)
 
     def get_plain_text(self):
-        return unicode(self.textedit.toPlainText())
+        return str(self.textedit.toPlainText())
 
     def findFocus(self):
         # print("findFocus called")
@@ -1838,7 +1837,7 @@ def question_dialog_all(parent, title, msg, det_msg='', show_copy_button=False,
         return question_cache[question_name]
     from calibre.gui2.dialogs.message_box import MessageBox
 
-    if not isinstance(skip_dialog_name, unicode):
+    if not isinstance(skip_dialog_name, str):
         skip_dialog_name = None
     try:
         auto_skip = set(gprefs.get('questions_to_auto_skip', ()))
@@ -1900,7 +1899,7 @@ def collect_unique_name(gui,
                                                   desc,
                                                   text=new_name)
         if save_new:
-            new_name = unicode(new_name).strip()
+            new_name = str(new_name).strip()
             if not new_name:
                 error_dialog(gui,_('Name Empty'),
                              _('Name cannot be empty'),
@@ -1915,7 +1914,7 @@ def collect_unique_name(gui,
                 continue
             if len(new_name) >= name_max:
                 error_dialog(gui,_('Name Too Long'),
-                             _('A snippet name cannot be more than %s characters.'%name_max),
+                             _('A snippet name cannot be more than %s characters.')%name_max,
                              show=True,
                              show_copy_button=False)
                 continue
