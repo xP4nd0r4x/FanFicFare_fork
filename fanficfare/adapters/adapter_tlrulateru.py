@@ -20,6 +20,7 @@ from __future__ import absolute_import
 import logging
 logger = logging.getLogger(__name__)
 import re
+import time
 from datetime import datetime
 import urllib.parse
 import urllib.request
@@ -51,6 +52,13 @@ class TLRulateRuAdapter(BaseSiteAdapter):
             self.__class__._login_attempts = 0
             self.__class__._total_requests = 0
             self.__class__._session = requests.Session()  # Создаем сессию
+        self.__class__._session.headers.update({
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) '
+                          'AppleWebKit/537.36 (KHTML, like Gecko) '
+                          'Chrome/131.0.0.0 Safari/537.36',
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+            'Accept-Language': 'ru-RU,ru;q=0.9,en-US;q=0.8,en;q=0.7',
+        })
         logger.debug("TLRulateRuAdapter __init__ called. Initializing class attributes: _is_logged_in=%s, _login_attempts=%d, _total_requests=%d",
                      self.__class__._is_logged_in, self.__class__._login_attempts, self.__class__._total_requests)
 
@@ -65,16 +73,23 @@ class TLRulateRuAdapter(BaseSiteAdapter):
     def getSiteURLPattern(self):
         return r'https?://' + re.escape(self.getSiteDomain()) + r'/book/\d+/?$'
 
+    def has_login_credentials(self):
+        username = self.getConfig('username', self.username)
+        password = self.getConfig('password', self.password)
+        return bool(username and username != 'NoneGiven' and password)
+
     def extractChapterUrlsAndMetadata(self):
         # Проверяем авторизацию перед извлечением данных
-        if not self.is_logged_in():
+        if self.has_login_credentials() and not self.is_logged_in():
             print("Не авторизован, пытаемся войти...")
             if not self.login():
                 raise Exception("Failed to login to tl.rulate.ru")
             else:
                 print("Успешно авторизовались на tl.rulate.ru!")
-        else:
+        elif self.__class__._is_logged_in:
             print("Уже авторизованы на tl.rulate.ru")
+        else:
+            logger.debug("No login credentials configured; using guest access")
                 
         url = self.url
         logger.debug("URL: "+url)
@@ -178,7 +193,8 @@ class TLRulateRuAdapter(BaseSiteAdapter):
                 self.story.setMetadata('authorUrl', '')
 
         # Extract description
-        description = soup.find('div', class_='btn-toolbar').find_next_sibling('div')
+        description_anchor = soup.find('div', class_='btn-toolbar')
+        description = description_anchor.find_next_sibling('div') if description_anchor else None
         if description:
             self.setDescription(url, description)
 
@@ -328,13 +344,29 @@ class TLRulateRuAdapter(BaseSiteAdapter):
             
         return self.utf8FromSoup(url, chapter) 
 
+    @classmethod
+    def _request_with_retries(cls, method, url, **kwargs):
+        for attempt in range(3):
+            response = cls._session.request(method, url, **kwargs)
+            if response.status_code != 429:
+                break
+            if attempt < 2:
+                retry_after = response.headers.get('Retry-After')
+                delay = int(retry_after) if retry_after and retry_after.isdigit() else 2 ** (attempt + 1)
+                logger.warning("tl.rulate.ru rate limit (429), retrying in %s seconds", delay)
+                time.sleep(min(delay, 30))
+
+        if response.status_code == 429:
+            raise Exception('tl.rulate.ru вернул 429 Too Many Requests; повторите позже')
+        return response
+
     def get_request(self, url, **kwargs):
         """Перехватываем все запросы для подсчета и используем сессию"""
         self.__class__._total_requests += 1
         logger.debug(f"[DEBUG] Запрос #{self.__class__._total_requests} к {url}")
         logger.debug(f"[DEBUG] Текущие куки: {self.__class__._session.cookies.get_dict()}")
-        
-        response = self.__class__._session.get(url, **kwargs)
+
+        response = self.__class__._request_with_retries('GET', url, **kwargs)
         return response.text  # Возвращаем текст вместо content
 
     def post_request(self, url, data, **kwargs):
@@ -343,7 +375,7 @@ class TLRulateRuAdapter(BaseSiteAdapter):
         logger.debug(f"[DEBUG] POST запрос #{self.__class__._total_requests} к {url}")
         logger.debug(f"[DEBUG] Текущие куки: {self.__class__._session.cookies.get_dict()}")
         
-        response = self.__class__._session.post(url, data=data, **kwargs)
+        response = self.__class__._request_with_retries('POST', url, data=data, **kwargs)
         return response.text  # Возвращаем текст вместо content
 
     def login(self):
@@ -356,7 +388,7 @@ class TLRulateRuAdapter(BaseSiteAdapter):
             return True
             
         # Получаем страницу с формой логина
-        initial_response = self.__class__._session.get(self.url)
+        initial_response = self.__class__._request_with_retries('GET', self.url)
         soup = self.make_soup(initial_response.text)
         
         # Ищем скрытое поле с CSRF-токеном
@@ -410,7 +442,8 @@ class TLRulateRuAdapter(BaseSiteAdapter):
         
         try:
             # Отправляем POST-запрос для логина
-            response = self.__class__._session.post(login_url, data=login_data, headers=headers)
+            response = self.__class__._request_with_retries(
+                'POST', login_url, data=login_data, headers=headers)
             
             # Проверяем успешность логина
             soup = self.make_soup(response.text)
