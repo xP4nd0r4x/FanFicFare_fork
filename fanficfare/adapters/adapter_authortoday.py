@@ -27,7 +27,10 @@ except ImportError as e:
 # Local imports
 from ..htmlcleanup import stripHTML
 from .. import exceptions as exceptions
-from ..six.moves.urllib import parse as urlparse
+try:
+    from urllib.parse import urlparse
+except ImportError:  # pragma: no cover
+    from urlparse import urlparse
 from .base_adapter import BaseSiteAdapter, makeDate
 
 logger = logging.getLogger(__name__)
