@@ -128,12 +128,16 @@ class TLRulateRuAdapter(BaseSiteAdapter):
             print("Title not found!")
             raise Exception('Story title not found!')
 
-        # Извлекаем основное название (до тега small)
-        main_title = ''.join(title.find_all(string=True, recursive=False)).strip()
-
         # Извлекаем дополнительное название из тега small, если он есть
         small_tag = title.find('small')
         additional_title = small_tag.get_text().strip() if small_tag else None
+
+        # Название может быть обернуто во вложенный тег внутри h1.
+        main_title = ''.join(title.find_all(string=True, recursive=False)).strip()
+        if not main_title:
+            main_title = title.get_text(' ', strip=True)
+            if additional_title and main_title.endswith(additional_title):
+                main_title = main_title[:-len(additional_title)].rstrip(' /-')
 
         # Объединяем названия с разделителем, если есть дополнительное название
         # Объединяем названия с разделителем, если есть дополнительное название и оно отличается от основного
