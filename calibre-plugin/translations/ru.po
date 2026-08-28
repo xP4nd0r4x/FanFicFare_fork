@@ -34,7 +34,7 @@ msgstr "Путь к библиотеке calibre. По умолчанию исп
 
 #: common_utils.py:290
 msgid "Keyboard shortcuts"
-msgstr "Сочетания клавиш..."
+msgstr "Сочетания клавиш…"
 
 #: common_utils.py:319
 msgid "Prefs Viewer dialog"
@@ -42,7 +42,7 @@ msgstr "Диалог настроек просмотрщика"
 
 #: common_utils.py:320
 msgid "Preferences for: "
-msgstr "Настройки для:"
+msgstr "Настройки для: "
 
 #: common_utils.py:351
 msgid "Clear"
@@ -186,7 +186,7 @@ msgid ""
 "(title, author, URL, tags, custom columns, etc) from the web site. <br "
 "/>This sets whether that will default to on or off. <br />Columns set to "
 "'New Only' in the column tabs will only be set for new books."
-msgstr "При каждой загрузке FanFicFare предлагает возможность обновлять метаданные Calibre (заголовок, автор, URL, теги, пользовательские столбцы и т. д.) с веб-сайта. <br />Здесь устанавливается, будет ли это по умолчанию включено или выключено. <br />Столбцы, выбранные как «Только новые» на вкладках столбцов, будут установлены только для новых книг."
+msgstr "При каждой загрузке FanFicFare предлагает возможность обновлять метаданные Calibre (заголовок, автор, URL-адрес, теги, пользовательские столбцы и т. д.) с веб-сайта. <br />Здесь устанавливается, будет ли это по умолчанию включено или отключено. <br />Столбцы, выбранные как «Только новые» на вкладках столбцов, будут установлены только для новых книг."
 
 #: config.py:498
 msgid "Default Background Metadata?"
@@ -833,7 +833,7 @@ msgid ""
 "The %(pini)s parameter %(gcset)s allows you to choose a %(gc)s setting based"
 " on metadata rather than site, but it's much more complex.<br />%(gcset)s is"
 " ignored when this is off."
-msgstr "Параметр %(pini)s %(gcset)s позволяет вам выбрать %(gc)s настройку на основе метаданных, а не сайта, но это намного сложнее. <br /> %(gcset)s игнорируется, когда это выключено."
+msgstr "Параметр %(pini)s %(gcset)s позволяет вам выбрать %(gc)s настройку на основе метаданных, а не сайта, но это намного сложнее. <br /> %(gcset)s игнорируется, когда это отключено."
 
 #: config.py:1325
 msgid ""
@@ -1087,7 +1087,7 @@ msgid ""
 "The %(pini)s parameter %(ccset)s allows you to set custom columns to site "
 "specific values that aren't common to all sites.<br />%(ccset)s is ignored "
 "when this is off."
-msgstr "Параметр %(pini)s %(ccset)s позволяет задавать пользовательским столбцам значения, определенные для сайта, и которые не являются общими для всех сайтов.<br />%(ccset)s игнорируется, когда выключено."
+msgstr "Параметр %(pini)s %(ccset)s позволяет задавать пользовательским столбцам значения, определённые для сайта, и которые не являются общими для всех сайтов.<br />%(ccset)s игнорируется, когда отключено."
 
 #: config.py:1591
 msgid "Special column:"

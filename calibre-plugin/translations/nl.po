@@ -14,8 +14,8 @@
 # M. de Boer <de.boer.melle@gmail.com>, 2018-2020
 # Meteor0id, 2019
 # Nathan Follens, 2015-2016
-# Nathan Follens, 2015
-# Nathan Follens, 2016
+# nthn, 2015
+# nthn, 2016
 # Meteor0id, 2019
 # Rodolfo_Jadon, 2014-2015
 # peter <klm@ditbenik.be>, 2022
