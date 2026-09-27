@@ -25,7 +25,7 @@ import pprint
 import string
 import os, sys, platform
 
-version="4.61.0"
+version="4.61.14"
 os.environ['CURRENT_VERSION_ID']=version
 
 global_cache = 'global_cache'
@@ -471,16 +471,37 @@ def do_download(arg,
             # returns int adjusted for start-end range.
             urlchaptercount = adapter.getStoryMetadataOnly().getChapterCount()
 
-            # Проверяем, есть ли галерея, которую нужно обновить
-            has_gallery_update = (hasattr(adapter, 'hasGalleryForUpdate') and 
-                                 adapter.hasGalleryForUpdate() and 
-                                 options.update)
-            
-            logger.debug(f"Update check: chaptercount={chaptercount}, urlchaptercount={urlchaptercount}, has_gallery_update={has_gallery_update}, update={options.update}, updatealways={options.updatealways}")
-            
-            if chaptercount == urlchaptercount and not options.metaonly and not options.updatealways and not has_gallery_update:
+            # Keep both update checks: gallery refreshes and recent-chapter
+            # edit detection should both force a re-download when needed.
+            has_gallery_update = (
+                hasattr(adapter, 'hasGalleryForUpdate') and
+                adapter.hasGalleryForUpdate() and
+                options.update
+            )
+            needs_edit_check = adapter.recheck_recent_chapters()
+            preserve_deleted = adapter.preserve_deleted_chapters()
+
+            logger.debug(
+                "Update check: chaptercount=%s, urlchaptercount=%s, "
+                "has_gallery_update=%s, needs_edit_check=%s, "
+                "update=%s, updatealways=%s",
+                chaptercount,
+                urlchaptercount,
+                has_gallery_update,
+                needs_edit_check,
+                options.update,
+                options.updatealways,
+            )
+
+            if (
+                chaptercount == urlchaptercount
+                and not options.metaonly
+                and not options.updatealways
+                and not has_gallery_update
+                and not needs_edit_check
+            ):
                 print('%s already contains %d chapters.' % (output_filename, chaptercount))
-            elif chaptercount > urlchaptercount and not (options.updatealways and adapter.getConfig('force_update_epub_always')):
+            elif chaptercount > urlchaptercount and not preserve_deleted and not (options.updatealways and adapter.getConfig('force_update_epub_always')):
                 warn('%s contains %d chapters, more than source: %d.' % (output_filename, chaptercount, urlchaptercount))
             elif chaptercount == 0:
                 warn("%s doesn't contain any recognizable chapters, probably from a different source.  Not updating." % output_filename)
@@ -497,6 +518,13 @@ def do_download(arg,
                  adapter.logfile,
                  adapter.oldchaptersmap,
                  adapter.oldchaptersdata) = (get_update_data(output_filename))[0:9]
+
+                if preserve_deleted and adapter.oldchaptersmap:
+                    site_urls = set(ch['url'] for ch in adapter.chapterUrls)
+                    preserved_count = sum(1 for old_url in adapter.oldchaptersmap
+                                          if old_url not in site_urls)
+                    if preserved_count:
+                        print('Preserving %d chapters that are no longer on the source site.' % preserved_count)
 
                 print('Do update - epub(%d) vs url(%d)' % (chaptercount, urlchaptercount))
 
