@@ -236,9 +236,12 @@ class RoyalRoadAdapter(BaseSiteAdapter):
             # logger.debug(json.dumps(chapters_info, sort_keys=True,
             #                         indent=2, separators=(',', ':')))
             for chap in chapters_info:
-                if chap['isUnlocked']: # locked chapters are not downloadable.
+                # isUnlocked isn't accurate, but null or empty
+                # subscriptionTiers is?
+                if not chap['subscriptionTiers']:
                     chapterUrl = 'https://' + self.getSiteDomain() + chap['url']
-                    chapterDate = datetime.fromisoformat(chap['date'])
+                    ## replace 'Z' - doesn't work in earlier py3 versions.
+                    chapterDate = datetime.fromisoformat(chap['date'].replace('Z','+00:00'))
                     date_format = self.getConfig("datechapter_format", self.getConfig("datePublished_format", self.dateformat))
                     if self.add_chapter(chap['title'], chapterUrl, {'date': chapterDate.strftime(date_format)}):
                     ## str to match lookup.
@@ -338,9 +341,12 @@ class RoyalRoadAdapter(BaseSiteAdapter):
             # logger.debug(json.dumps(chapters_info, sort_keys=True,
             #                         indent=2, separators=(',', ':')))
             for chap in chapters_info:
-                if chap['isUnlocked']: # locked chapters are not downloadable.
+                # isUnlocked isn't accurate, but null or empty
+                # subscriptionTiers is?
+                if not chap['subscriptionTiers']:
                     chapterUrl = 'https://' + self.getSiteDomain() + chap['url']
-                    chapterDate = datetime.fromisoformat(chap['date'])
+                    ## replace 'Z' - doesn't work in earlier py3 versions.
+                    chapterDate = datetime.fromisoformat(chap['date'].replace('Z','+00:00'))
                     date_format = self.getConfig("datechapter_format", self.getConfig("datePublished_format", self.dateformat))
                     if self.add_chapter(chap['title'], chapterUrl, {'date': chapterDate.strftime(date_format)}):
                     ## str to match lookup.
