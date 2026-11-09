@@ -19,14 +19,14 @@
 from __future__ import absolute_import
 import logging
 logger = logging.getLogger(__name__)
+from datetime import datetime, timezone
+from email.utils import parsedate_to_datetime
 import re
 import time
-from datetime import datetime
 import urllib.parse
-import urllib.request
 import requests
 
-from ..htmlcleanup import stripHTML
+from .. import exceptions
 from .base_adapter import BaseSiteAdapter
 
 def getClass():
@@ -46,21 +46,18 @@ class TLRulateRuAdapter(BaseSiteAdapter):
         # normalized story URL.
         self._setURL('https://' + self.getSiteDomain() + '/book/' + self.story.getMetadata('storyId'))
         
-        # Добавляем переменные для отладки
-        if not hasattr(self.__class__, '_is_logged_in'):
-            self.__class__._is_logged_in = False
-            self.__class__._login_attempts = 0
-            self.__class__._total_requests = 0
-            self.__class__._session = requests.Session()  # Создаем сессию
-        self.__class__._session.headers.update({
+        self._is_logged_in = False
+        self._login_attempts = 0
+        self._total_requests = 0
+        self._session = requests.Session()
+        self._session.headers.update({
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) '
                           'AppleWebKit/537.36 (KHTML, like Gecko) '
                           'Chrome/131.0.0.0 Safari/537.36',
             'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
             'Accept-Language': 'ru-RU,ru;q=0.9,en-US;q=0.8,en;q=0.7',
         })
-        logger.debug("TLRulateRuAdapter __init__ called. Initializing class attributes: _is_logged_in=%s, _login_attempts=%d, _total_requests=%d",
-                     self.__class__._is_logged_in, self.__class__._login_attempts, self.__class__._total_requests)
+        logger.debug("Initialized tl.rulate.ru session for %s", self.url)
 
     @staticmethod
     def getSiteDomain():
@@ -81,13 +78,12 @@ class TLRulateRuAdapter(BaseSiteAdapter):
     def extractChapterUrlsAndMetadata(self):
         # Проверяем авторизацию перед извлечением данных
         if self.has_login_credentials() and not self.is_logged_in():
-            print("Не авторизован, пытаемся войти...")
+            logger.debug("Not logged in; attempting authentication")
             if not self.login():
                 raise Exception("Failed to login to tl.rulate.ru")
-            else:
-                print("Успешно авторизовались на tl.rulate.ru!")
-        elif self.__class__._is_logged_in:
-            print("Уже авторизованы на tl.rulate.ru")
+            logger.debug("Successfully authenticated with tl.rulate.ru")
+        elif self._is_logged_in:
+            logger.debug("Already authenticated with tl.rulate.ru")
         else:
             logger.debug("No login credentials configured; using guest access")
                 
@@ -104,19 +100,20 @@ class TLRulateRuAdapter(BaseSiteAdapter):
         # Проверяем наличие формы подтверждения возраста
         age_form = soup.find('div', class_='errorpage')
         if age_form and "старше 18 лет" in age_form.get_text():
-            print("Found age verification page, submitting confirmation...")
+            logger.debug("Found age verification page; submitting confirmation")
             
             # Находим форму и её элементы
             form = age_form.find('form')
-            if form:
+            path_input = form.find('input', {'name': 'path'}) if form else None
+            if path_input and path_input.get('value'):
                 # Получаем данные формы
                 data = {
-                    'path': form.find('input', {'name': 'path'})['value'],
+                    'path': path_input['value'],
                     'ok': 'Да'
                 }
                 
                 # Отправляем POST-запрос на адрес формы
-                response = self.post_request('https://tl.rulate.ru/mature', data)
+                self.post_request('https://tl.rulate.ru/mature', data)
                 
                 # После подтверждения возраста делаем новый запрос к странице книги
                 response = self.get_request(self.url)
@@ -125,7 +122,7 @@ class TLRulateRuAdapter(BaseSiteAdapter):
         # Теперь продолжаем поиск заголовка на странице
         title = soup.find('h1')
         if not title:
-            print("Title not found!")
+            logger.warning("Story title not found at %s", url)
             raise Exception('Story title not found!')
 
         # Извлекаем дополнительное название из тега small, если он есть
@@ -184,7 +181,8 @@ class TLRulateRuAdapter(BaseSiteAdapter):
             # Try to find owner in translation panel
             owner = soup.select_one(".tools>dl.info>dd>a.user[href^='/users/']")
             if owner:
-                prev_text = owner.previous_sibling.get_text().strip().lower()
+                previous = owner.previous_sibling
+                prev_text = (previous.get_text() if hasattr(previous, 'get_text') else str(previous or '')).strip().lower()
                 if prev_text.endswith("владелец:"):
                     author = owner.get_text().strip()
                     author_id = owner['href'].split('/')[-1]
@@ -215,41 +213,25 @@ class TLRulateRuAdapter(BaseSiteAdapter):
                 self.story.setMetadata('rating', rating)
 
         # Extract genres and tags
-        print("Extracting genres...")
-        print("Looking for genres in <p><strong>Жанры:</strong><em>...")
         genres_p = soup.find('strong', text='Жанры:')
         if genres_p and genres_p.find_parent('p'):
             genres_em = genres_p.find_parent('p').find('em')
             if genres_em:
                 genres = genres_em.find_all('a', class_='badge')
-                print(f"Found {len(genres)} genres:")
+                logger.debug("Found %d genres", len(genres))
                 for genre in genres:
                     genre_text = genre.get_text().strip()
-                    genre_href = genre.get('href', '')
-                    print(f"- Genre: '{genre_text}' (href: {genre_href})")
                     self.story.addToList('genre', genre_text)
-            else:
-                print("No <em> tag found for genres")
-        else:
-            print("No genres block found")
 
-        print("\nExtracting tags...")
-        print("Looking for tags in <p><strong>Тэги:</strong><em>...")
         tags_p = soup.find('strong', text='Тэги:')
         if tags_p and tags_p.find_parent('p'):
             tags_em = tags_p.find_parent('p').find('em')
             if tags_em:
                 tags = tags_em.find_all('a', class_='badge')
-                print(f"Found {len(tags)} tags:")
+                logger.debug("Found %d tags", len(tags))
                 for tag in tags:
                     tag_text = tag.get_text().strip()
-                    tag_href = tag.get('href', '')
-                    print(f"- Tag: '{tag_text}' (href: {tag_href})")
                     self.story.addToList('category', tag_text)
-            else:
-                print("No <em> tag found for tags")
-        else:
-            print("No tags block found")
 
         # Get chapter list
         chapters = []
@@ -361,60 +343,76 @@ class TLRulateRuAdapter(BaseSiteAdapter):
             
         return self.utf8FromSoup(url, chapter) 
 
-    @classmethod
-    def _request_with_retries(cls, method, url, **kwargs):
-        for attempt in range(3):
-            response = cls._session.request(method, url, **kwargs)
+    def _request_with_retries(self, method, url, **kwargs):
+        kwargs.setdefault('timeout', (10, 30))
+        retryable = method.upper() in ('GET', 'HEAD')
+        max_attempts = 3 if retryable else 1
+        for attempt in range(max_attempts):
+            response = self._session.request(method, url, **kwargs)
             if response.status_code != 429:
                 break
-            if attempt < 2:
+            if attempt < max_attempts - 1:
                 retry_after = response.headers.get('Retry-After')
-                delay = int(retry_after) if retry_after and retry_after.isdigit() else 2 ** (attempt + 1)
+                try:
+                    if retry_after and retry_after.isdigit():
+                        delay = int(retry_after)
+                    elif retry_after:
+                        retry_at = parsedate_to_datetime(retry_after)
+                        if retry_at.tzinfo is None:
+                            retry_at = retry_at.replace(tzinfo=timezone.utc)
+                        delay = max(0, (retry_at - datetime.now(timezone.utc)).total_seconds())
+                    else:
+                        delay = 2 ** (attempt + 1)
+                except (TypeError, ValueError, OverflowError):
+                    delay = 2 ** (attempt + 1)
+                delay = min(delay, 30)
                 logger.warning("tl.rulate.ru rate limit (429), retrying in %s seconds", delay)
-                time.sleep(min(delay, 30))
+                time.sleep(delay)
 
         if response.status_code == 429:
             raise Exception('tl.rulate.ru вернул 429 Too Many Requests; повторите позже')
+        if response.status_code == 404 and url == self.url:
+            raise exceptions.StoryDoesNotExist(self.url)
+        response.raise_for_status()
         return response
 
     def get_request(self, url, **kwargs):
         """Перехватываем все запросы для подсчета и используем сессию"""
-        self.__class__._total_requests += 1
-        logger.debug(f"[DEBUG] Запрос #{self.__class__._total_requests} к {url}")
-        logger.debug(f"[DEBUG] Текущие куки: {self.__class__._session.cookies.get_dict()}")
+        self._total_requests += 1
+        logger.debug("GET request #%d to %s", self._total_requests, url)
 
-        response = self.__class__._request_with_retries('GET', url, **kwargs)
+        response = self._request_with_retries('GET', url, **kwargs)
         return response.text  # Возвращаем текст вместо content
 
     def post_request(self, url, data, **kwargs):
         """Перехватываем все POST запросы для подсчета и используем сессию"""
-        self.__class__._total_requests += 1
-        logger.debug(f"[DEBUG] POST запрос #{self.__class__._total_requests} к {url}")
-        logger.debug(f"[DEBUG] Текущие куки: {self.__class__._session.cookies.get_dict()}")
+        self._total_requests += 1
+        logger.debug("POST request #%d to %s", self._total_requests, url)
         
-        response = self.__class__._request_with_retries('POST', url, data=data, **kwargs)
+        response = self._request_with_retries('POST', url, data=data, **kwargs)
         return response.text  # Возвращаем текст вместо content
 
     def login(self):
         """Login to tl.rulate.ru"""
-        self.__class__._login_attempts += 1
-        logger.debug(f"[DEBUG] Попытка логина #{self.__class__._login_attempts}")
+        self._login_attempts += 1
+        logger.debug("Login attempt #%d", self._login_attempts)
         
-        if self.__class__._is_logged_in:
+        if self._is_logged_in:
             logger.debug("[DEBUG] Пропускаем логин - уже авторизованы")
             return True
             
-        # Получаем страницу с формой логина
-        initial_response = self.__class__._request_with_retries('GET', self.url)
+        # Получаем страницу с формой логина, не требуя гостевого доступа к книге
+        login_page_url = 'https://' + self.getSiteDomain() + '/'
+        initial_response = self._request_with_retries('GET', login_page_url)
         soup = self.make_soup(initial_response.text)
         
         # Ищем скрытое поле с CSRF-токеном
         csrf_meta = soup.find('meta', {'name': 'csrf-token'})
         if csrf_meta:
             csrf_token = csrf_meta.get('content')
-            logger.debug(f"[DEBUG] CSRF токен из meta: {csrf_token}")
+            logger.debug("CSRF token found")
         else:
-            logger.debug("[DEBUG] CSRF токен не найден в meta!")
+            logger.debug("CSRF token not found in meta tag")
             csrf_token = None
             
         # Выводим HTML формы для отладки
@@ -438,10 +436,7 @@ class TLRulateRuAdapter(BaseSiteAdapter):
         if csrf_token:
             login_data['_csrf'] = csrf_token
             
-        logger.debug(f"Подготовленные данные для отправки (без пароля):")
-        safe_data = login_data.copy()
-        safe_data['login[pass]'] = '****'
-        logger.debug(safe_data)
+        logger.debug("Prepared login data")
         
         # Добавляем заголовки
         headers = {
@@ -459,36 +454,36 @@ class TLRulateRuAdapter(BaseSiteAdapter):
         
         try:
             # Отправляем POST-запрос для логина
-            response = self.__class__._request_with_retries(
+            response = self._request_with_retries(
                 'POST', login_url, data=login_data, headers=headers)
             
             # Проверяем успешность логина
             soup = self.make_soup(response.text)
             if soup.select_one('#header-login'):
                 logger.debug("Ошибка авторизации! Проверьте логин и пароль.")
-                logger.debug(f"[DEBUG] Куки после неудачного логина: {self.__class__._session.cookies.get_dict()}")
-                self.__class__._is_logged_in = False
+                self._is_logged_in = False
                 return False
                 
             logger.debug("Авторизация успешно завершена!")
-            logger.debug(f"[DEBUG] Куки после успешного логина: {self.__class__._session.cookies.get_dict()}")
-            self.__class__._is_logged_in = True
+            self._is_logged_in = True
             return True
             
         except Exception as e:
             logger.error(f"Ошибка при авторизации: {str(e)}")
-            self.__class__._is_logged_in = False
+            self._is_logged_in = False
             return False
         
     def is_logged_in(self):
         """Check if we're logged in"""
-        logger.debug(f"[DEBUG] Проверка авторизации (попыток: {self.__class__._login_attempts}, запросов: {self.__class__._total_requests})")
+        logger.debug("Checking authentication (attempts: %d, requests: %d)",
+                 self._login_attempts, self._total_requests)
         
-        if self.__class__._is_logged_in:
+        if self._is_logged_in:
             logger.debug("[DEBUG] Используем сохраненное состояние авторизации")
             return True
             
-        soup = self.make_soup(self.get_request(self.url))
-        self.__class__._is_logged_in = not bool(soup.select_one('#header-login'))
-        logger.debug(f"[DEBUG] Результат проверки авторизации: {'успех' if self.__class__._is_logged_in else 'не авторизован'}")
-        return self.__class__._is_logged_in
+        login_page_url = 'https://' + self.getSiteDomain() + '/'
+        soup = self.make_soup(self.get_request(login_page_url))
+        self._is_logged_in = not bool(soup.select_one('#header-login'))
+        logger.debug("Authentication check result: %s", "success" if self._is_logged_in else "not logged in")
+        return self._is_logged_in
