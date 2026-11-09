@@ -60,11 +60,11 @@ from fanficfare import adapters, exceptions
 
 from fanficfare.epubutils import (
     get_dcsource, get_dcsource_chaptercount, get_story_url_from_epub_html,
-    get_story_url_from_zip_html, reset_orig_chapters_epub, get_cover_img)
+    get_story_url_from_zip_html, unnew_chapters_epub, get_cover_img)
 
-from fanficfare.geturls import (
-    get_urls_from_page, get_urls_from_text,get_urls_from_imap,
-    get_urls_from_mime)
+from fanficfare.geturls import GetURLs
+
+from fanficfare.updategate import decide_update
 
 from fanficfare.fff_profile import do_cprofile
 
@@ -96,7 +96,7 @@ from calibre_plugins.fanficfare_plugin.dialogs import (
     RejectListDialog, EmailPassDialog, TOTPDialog,
     save_collisions, question_dialog_all,
     RejectUrlEntry, IniTextDialog,
-    EditTextDialog)
+    EditTextDialog, ModalDialog)
 
 # because calibre immediately transforms html into zip and don't want
 # to have an 'if html'.  db.has_format is cool with the case mismatch,
@@ -214,7 +214,7 @@ class FanFicFarePlugin(InterfaceAction):
             ## mime_data.data(libmime).data() returns bytes.
             dropped_ids = [ int(x) for x in ensure_text(mime_data.data(libmime).data()).split() ]
         else:
-            urllist = get_urls_from_mime(mime_data)
+            urllist = GetURLs().get_urls_from_mime(mime_data)
 
         # print("urllist:%s\ndropped_ids:%s"%(urllist,dropped_ids))
         if urllist or dropped_ids:
@@ -484,7 +484,7 @@ class FanFicFarePlugin(InterfaceAction):
     def add_reject_urls(self):
         url_list = self.get_urls_clip()
         url_list_text = "\n".join(url_list)
-        logger.debug("\n\n%s\n"%url_list_text)
+        # logger.debug("\n\n%s\n"%url_list_text)
         d = EditTextDialog(self.gui,
                            "http://example.com/story.php?sid=5,"+_("Reason why I rejected it")+"\nhttp://example.com/story.php?sid=6,"+_("Title by Author")+" - "+_("Reason why I rejected it")+"\n"+url_list_text,
                            # icon=self.windowIcon(),
@@ -602,11 +602,27 @@ class FanFicFarePlugin(InterfaceAction):
         try:
             with busy_cursor():
                 self.do_status_message(_('Fetching Story URLs from Email...'),1000)
-                url_list = get_urls_from_imap(prefs['imapserver'],
-                                              prefs['imapuser'],
-                                              imap_pass,
-                                              prefs['imapfolder'],
-                                              prefs['imapmarkread'],)
+
+                # logger.debug("Calling get_urls_from_imap")
+
+                configuration = get_fff_config("test1.com")
+                geturls = GetURLs(configuration,get_fff_config)
+                ModalDialog(self.gui,
+                            partial(run_off_gui_thread,
+                                    partial(geturls.get_urls_from_imap,
+                                            prefs['imapserver'],
+                                            prefs['imapuser'],
+                                            imap_pass,
+                                            prefs['imapfolder'],
+                                            prefs['imapmarkread'])),
+                            partial(self.finish_urls_from_imap_menu,
+                                    extraoptions=extraoptions),
+                            self.qaction.icon(),
+                            _('Please Wait'),
+                            _('Fetching Story URLs from Email...'))
+
+                # logger.debug("get_urls_from_imap returned")
+
         except Exception as e:
             det_msg = "".join(traceback.format_exception(*sys.exc_info()))
             logger.error("Error Fetching Email:\n%s"%det_msg)
@@ -628,6 +644,9 @@ class FanFicFarePlugin(InterfaceAction):
                          show=True)
             return
 
+    def finish_urls_from_imap_menu(self,url_list,extraoptions={}):
+        # logger.debug("finish_urls_from_imap_menu called")
+        # logger.debug(url_list)
         with busy_cursor():
             ## reject will now be redundant with reject check inside
             ## prep_downloads because of change-able story URLs.
@@ -644,8 +663,6 @@ class FanFicFarePlugin(InterfaceAction):
             if prefs['update_existing_only_from_email']:
                 notupdate_list = set([x for x in url_list if not self.do_id_search(adapters.getNormalStoryURL(x))])
             url_list = url_list - notupdate_list
-
-            self.do_status_message(_('No Valid Story URLs Found in Unread Emails.'),3000)
 
         if prefs['download_from_email_immediately']:
             ## do imap fetch w/o GUI elements
@@ -722,18 +739,40 @@ class FanFicFarePlugin(InterfaceAction):
         with busy_cursor():
             self.do_status_message(_('Fetching Story URLs from Page...'))
 
-            frompage = self.get_urls_from_page(url,d.get_ini_snippet_text())
-            url_list = frompage.get('urllist',[])
+            # logger.debug("Calling get_urls_from_page")
 
-            self.do_status_message(_('Finished Fetching Story URLs from Page.'),3000)
+            ModalDialog(self.gui,
+                        partial(run_off_gui_thread,
+                                partial(self.get_urls_from_page,
+                                        url,
+                                        d.get_ini_snippet_text())),
+                        partial(self.finish_urls_from_page,
+                                url,
+                                extraoptions=extraoptions,
+                                anthology=d.anthology,
+                                ini_snippet_name=ini_snippet_name),
+                        self.qaction.icon(),
+                        _('Please Wait'),
+                        _('Fetching Story URLs from Page...'))
 
+            # logger.debug("get_urls_from_imap returned")
+
+    def finish_urls_from_page(self,
+                              url,
+                              frompage,
+                              extraoptions={},
+                              anthology=False,
+                              ini_snippet_name=None):
+        logger.debug("finish_urls_from_page")
+        logger.debug(frompage)
+        url_list = frompage.get('urllist',[])
         if url_list:
             # make a copy before adding to avoid changing passed param
             eo = dict(extraoptions)
             eo.update({'anthology_url':url,
                        'frompage':frompage})
             self.add_dialog(False,"\n".join(url_list),
-                            merge=d.anthology,
+                            merge=anthology,
                             ini_snippet_name=ini_snippet_name,
                             extraoptions=eo)
         else:
@@ -746,7 +785,9 @@ class FanFicFarePlugin(InterfaceAction):
         ## now returns a {} with at least 'urllist'
         logger.debug("get_urls_from_page URL:%s"%url)
         configuration = get_fff_config(url,ini_snippet=ini_snippet)
-        return get_urls_from_page(url,configuration)
+        geturls = GetURLs(configuration,
+                          partial(get_fff_config, ini_snippet=ini_snippet))
+        return geturls.get_urls_from_page(url)
 
     def list_story_urls(self,checked):
         '''Get list of URLs from existing books.'''
@@ -771,7 +812,7 @@ class FanFicFarePlugin(InterfaceAction):
                            win_title=_("Get URLs for stories"),
                            status_prefix=_("URL retrieved"))
 
-    def get_list_story_urls_loop(self,book,db=None):
+    def get_list_story_urls_loop(self,book,db=None,quit_fn=None):
         if book['calibre_id']:
             book['url'] = self.get_story_url(db,book_id=book['calibre_id'])
         elif book['path']:
@@ -819,7 +860,7 @@ class FanFicFarePlugin(InterfaceAction):
                            win_title=_("UnNew Books"),
                            status_prefix=_("Books UnNewed"))
 
-    def get_unnew_books_loop(self,book,db=None,tdir=None):
+    def get_unnew_books_loop(self,book,db=None,tdir=None,quit_fn=None):
 
         book['changed']=False
         if book['calibre_id'] and db.has_format(book['calibre_id'],'EPUB',index_is_id=True) and self.get_story_url(db,book['calibre_id']):
@@ -831,7 +872,7 @@ class FanFicFarePlugin(InterfaceAction):
             unnewtmp = PersistentTemporaryFile(prefix='unnew-%s-'%book['calibre_id'],
                                                suffix='.epub',
                                                dir=tdir)
-            book['changed']=reset_orig_chapters_epub(tmp,unnewtmp)
+            book['changed']=unnew_chapters_epub(tmp,unnewtmp)
             if book['changed']:
                 try:
                     # Remove before adding so the previous version is in the
@@ -891,7 +932,7 @@ class FanFicFarePlugin(InterfaceAction):
                            win_title=_("Get URLs for Reject List"),
                            status_prefix=_("URL retrieved"))
 
-    def reject_list_urls_loop(self,book,db=None):
+    def reject_list_urls_loop(self,book,db=None,quit_fn=None):
         self.get_list_story_urls_loop(book,db) # common with get_list_story_urls_loop
         if book['calibre_id']:
             # want title/author, too, for rejects.
@@ -1001,30 +1042,51 @@ class FanFicFarePlugin(InterfaceAction):
                 if not filenames or len(filenames) != len (url_list):
                     raise NotAnthologyException()
 
-                # get list from identifiers:url/uri if present, but only if
-                # it's *not* a valid story URL.
                 mergeurl = self.get_story_url(db,book_id)
 
-            d = CollectURLDialog(self.gui,_("Get Story URLs from Series Page"),mergeurl,
-                                 prefs=prefs,
-                                 anthology=True,
-                                 indiv=False)
-            d.exec_()
-            if not d.status:
-                return
-            # to pass to add dialog for default snippet.
-            ini_snippet_name = d.get_ini_snippet_name()
+            frompage = {'urllist':url_list}
+            ini_snippet_name = None
+            # get list from identifiers:url/uri if present, but only
+            # if it's *not* a valid story URL.  get_story_url looks a
+            # little too deep
+            if mergeurl and not self.is_good_downloader_url(mergeurl):
+                d = CollectURLDialog(self.gui,_("Get Story URLs from Series Page"),mergeurl,
+                                     prefs=prefs,
+                                     anthology=True,
+                                     indiv=False)
+                d.exec_()
+                if not d.status:
+                    return
+                # to pass to add dialog for default snippet.
+                ini_snippet_name = d.get_ini_snippet_name()
 
-            with busy_cursor():
-                frompage = {}
-                if mergeurl and not self.is_good_downloader_url(mergeurl):
-                    frompage = self.get_urls_from_page(mergeurl,d.get_ini_snippet_text())
-                    url_list = [ adapters.getNormalStoryURL(url) for url in frompage.get('urllist',[]) ]
-                frompage['urllist']=url_list
+                def do_get_urls_from_page():
+                    with busy_cursor():
+                        frompage = self.get_urls_from_page(mergeurl,d.get_ini_snippet_text())
+                        frompage['urllist'] = [ adapters.getNormalStoryURL(url) for url in frompage.get('urllist',[]) ]
+                        return frompage
 
-                url_list_text = "\n".join(url_list)
-
-                self.do_status_message(_('Finished Fetching Story URLs for Series.'),3000)
+                ModalDialog(self.gui,
+                            partial(run_off_gui_thread,
+                                    do_get_urls_from_page),
+                            partial(self.finish_update_anthology,
+                                    mergebook=mergebook,
+                                    tdir=tdir,
+                                    extraoptions=extraoptions,
+                                    ini_snippet_name=ini_snippet_name,
+                                    urlmapfile=urlmapfile),
+                            self.qaction.icon(),
+                            _('Please Wait'),
+                            _('Fetching Story URLs for Series...'))
+            else:
+                ## this is the path when we don't need to hit a
+                ## series URL
+                self.finish_update_anthology(frompage,
+                                             mergebook,
+                                             tdir,
+                                             extraoptions,
+                                             ini_snippet_name,
+                                             urlmapfile)
         except NotAnthologyException:
             # using an exception purely to get outside 'with busy_cursor:'
             info_dialog(self.gui, _("Cannot Update Anthology"),
@@ -1034,8 +1096,17 @@ class FanFicFarePlugin(InterfaceAction):
             remove_dir(tdir)
             return
 
-        #print("urlmapfile:%s"%urlmapfile)
+    def finish_update_anthology(self,
+                                frompage,
+                                mergebook=None,
+                                tdir=None,
+                                extraoptions={},
+                                ini_snippet_name=None,
+                                urlmapfile={}):
+        logger.debug("finish_update_anthology")
+        # logger.debug(frompage)
 
+        url_list_text = "\n".join(frompage['urllist'])
         # AddNewDialog collects URLs, format and presents buttons.
         # add_new_dialog is modeless and reused, both for new stories
         # and anthologies, and for updating existing anthologies.
@@ -1094,7 +1165,6 @@ class FanFicFarePlugin(InterfaceAction):
                 logger.debug("Canceling anthology update due to removed stories.")
                 return
 
-        # Now that we've
         self.prep_downloads( options, update_books, merge=True )
 
     def update_dialog(self,checked,id_list=None,extraoptions={}):
@@ -1268,13 +1338,26 @@ class FanFicFarePlugin(InterfaceAction):
                     rejecturllist.remove(url)
         return False
 
-    def get_story_metadata_only(self,adapter):
+    def get_story_metadata_only(self,adapter,options):
         url = adapter.url
+
+        storydata = options.get('frompage',{}).get('storydata')
+        # ignore_chapter_url_list requires chapter list to compare
+        if storydata and not adapter.getConfig('ignore_chapter_url_list'):
+            for sd in storydata:
+                surl = adapters.getNormalStoryURL(sd['storyUrl'])
+                if url == surl:
+                    ## matched
+                    retval = adapter.getStorySeriesMetadataOnly(sd)
+                    if retval:
+                        return retval
         ## 5 tries, should be enough if user/pass, totp & is_adult
         ## needed, or a couple tries of one or the other
+        retval = None
         for x in [0,1,2,3,4]:
             try:
-                adapter.getStoryMetadataOnly(get_cover=False)
+                retval = run_off_gui_thread(adapter.getStoryMetadataOnly, get_cover=False)
+                break
             except exceptions.FailedToLogin as f:
                 logger.warn("Login Failed, Need Username/Password.")
                 userpass = UserPassDialog(self.gui,url,f)
@@ -1299,7 +1382,7 @@ class FanFicFarePlugin(InterfaceAction):
                     adapter.is_adult=True
 
         # let other exceptions percolate up.
-        return adapter.getStoryMetadataOnly(get_cover=False)
+        return retval or run_off_gui_thread(adapter.getStoryMetadataOnly, get_cover=False)
 
     @do_cprofile
     def prep_download_loop(self,book,
@@ -1307,7 +1390,8 @@ class FanFicFarePlugin(InterfaceAction):
                                     'collision':ADDNEW,
                                     'updatemeta':True,
                                     'bgmeta':False},
-                           merge=False):
+                           merge=False,
+                           quit_fn=None):
         '''
         Update passed in book dict with metadata from website and
         necessary data.  To be called from LoopProgressDialog
@@ -1391,7 +1475,8 @@ class FanFicFarePlugin(InterfaceAction):
 
             # let other exceptions percolate up.
             # bgmeta doesn't work with CALIBREONLY.
-            story = self.get_story_metadata_only(adapter)
+            # logger.debug(options.get('frompage'))
+            story = self.get_story_metadata_only(adapter,options)
             bgmeta = False
         else:
             if not bgmeta:
@@ -1408,7 +1493,12 @@ class FanFicFarePlugin(InterfaceAction):
                     # logger.debug("tweak_fg_sleep: Set FG sleep override time %s"%slp)
                     configuration.set_sleep_override(slp)
 
-                story = self.get_story_metadata_only(adapter)
+                ## function that returns True if download should quit
+                ## with QuitDownloadException raised.
+                configuration.set_quit(quit_fn)
+
+                # logger.debug(options.get('frompage'))
+                story = self.get_story_metadata_only(adapter,options)
                 book['title'] = story.getMetadata('title')
                 book['author'] = [story.getMetadata('author')]
                 url = book['url'] = story.getMetadata('storyUrl', removeallentities=True)
@@ -1657,11 +1747,17 @@ class FanFicFarePlugin(InterfaceAction):
                         urlchaptercount = story.getChapterCount()
                         needs_edit_check = adapter.recheck_recent_chapters()
                         preserve_deleted = adapter.preserve_deleted_chapters()
-                        if chaptercount == urlchaptercount and collision == UPDATE and not needs_edit_check:
+                        update_decision = decide_update(chaptercount, urlchaptercount,
+                                                       updatealways=collision == UPDATEALWAYS,
+                                                       needs_edit_check=needs_edit_check,
+                                                       preserve_deleted=preserve_deleted,
+                                                       force_update_epub_always=collision == UPDATEALWAYS and adapter.getConfig('force_update_epub_always'))
+
+                        if update_decision == 'already_contains':
                             raise exceptions.NotGoingToDownload(_("Already contains %d chapters.")%chaptercount,'edit-undo.png',showerror=False)
-                        elif chaptercount > urlchaptercount and not preserve_deleted and not (collision == UPDATEALWAYS and adapter.getConfig('force_update_epub_always')):
+                        elif update_decision == 'more_than_source':
                             raise exceptions.NotGoingToDownload(_("Existing epub contains %d chapters, web site only has %d. Use Overwrite or force_update_epub_always to force update.") % (chaptercount,urlchaptercount),'dialog_error.png')
-                        elif chaptercount == 0:
+                        elif update_decision == 'no_chapters':
                             raise exceptions.NotGoingToDownload(_("FanFicFare doesn't recognize chapters in existing epub, epub is probably from a different source. Use Overwrite to force update."),'dialog_error.png')
 
                 if collision == OVERWRITE and \
@@ -1850,10 +1946,15 @@ class FanFicFarePlugin(InterfaceAction):
         args = ['calibre_plugins.fanficfare_plugin.jobs',
                 'do_download_worker_single',
                 (site, book_list, options, merge)]
-        if site:
-            desc = _('Download %s FanFiction Book(s) for %s') % (sum(1 for x in book_list if x['good']),site)
+        dl_count = sum(1 for x in book_list if x['good'])
+        if dl_count == 1:
+            book = book_list[0]
+            ## Should always have title, but fall back to URL if not.
+            desc = _('Download FanFiction Book (%s)') % (book.get('title') or book['url'])
+        elif site:
+            desc = _('Download %s FanFiction Book(s) for %s') % (dl_count,site)
         else:
-            desc = _('Download %s FanFiction Book(s)') % sum(1 for x in book_list if x['good'])
+            desc = _('Download %s FanFiction Book(s)') % dl_count
 
         job = self.gui.job_manager.run_job(
                 self.Dispatcher(partial(self.download_list_completed,
@@ -1906,7 +2007,8 @@ class FanFicFarePlugin(InterfaceAction):
                                    'updatemeta':True,
                                    'bgmeta':False},
                           errorcol_label=None,
-                          lastcheckedcol_label=None):
+                          lastcheckedcol_label=None,
+                          quit_fn=None):
         try:
             self.update_error_column_loop(book,db,errorcol_label,lastcheckedcol_label)
 
@@ -2201,7 +2303,7 @@ class FanFicFarePlugin(InterfaceAction):
             (good_list,bad_list,options) = payload
             total_good = len(good_list)
 
-            logger.debug("merge titles:\n%s"%"\n".join([ "%s %s"%(x['title'],x['listorder']) for x in good_list ]))
+            # logger.debug("merge titles:\n%s"%"\n".join([ "%s %s"%(x['title'],x['listorder']) for x in good_list ]))
 
             good_list = sorted(good_list,key=lambda x : x['listorder'])
             bad_list = sorted(bad_list,key=lambda x : x['listorder'])
@@ -2352,7 +2454,7 @@ class FanFicFarePlugin(InterfaceAction):
                                status_prefix=_("Updated"),
                                disable_cancel=True)
 
-    def update_error_column_loop(self,book,db=None,errorcol_label=None,lastcheckedcol_label=None):
+    def update_error_column_loop(self,book,db=None,errorcol_label=None,lastcheckedcol_label=None,quit_fn=None):
         if book['calibre_id'] and errorcol_label:
             if (not book['good'] or 'chapter_error_count' in book) and (book['showerror'] or prefs['save_all_errors']):
                 logger.debug("update_error_column_loop bad %s %s %s"%(book['title'],book['url'],book['comment']))
@@ -2950,7 +3052,7 @@ class FanFicFarePlugin(InterfaceAction):
         book['good'] = False
         return book
 
-    def populate_book_from_calibre_id(self, book, db=None):
+    def populate_book_from_calibre_id(self, book, db=None, quit_fn=None):
         mi = db.get_metadata(book['calibre_id'], index_is_id=True)
         #book = {}
         book['good'] = True
@@ -3034,7 +3136,7 @@ class FanFicFarePlugin(InterfaceAction):
                 if db.has_format(book_id,'TXT',index_is_id=True):
                     # print("has txt format")
                     existingtxt = db.format(book_id,'TXT',index_is_id=True)
-                    links = get_urls_from_text(existingtxt,normalize=True)
+                    links = GetURLs().get_urls_from_text(existingtxt,normalize=True)
                     if links:
                         return links[0]
         return None
@@ -3058,7 +3160,7 @@ class FanFicFarePlugin(InterfaceAction):
         serieslist=[]
         serieslists=[]
 
-        logger.debug("options['anthology_url']:%s"%options.get('anthology_url','NOT FOUND'))
+        # logger.debug("options['anthology_url']:%s"%options.get('anthology_url','NOT FOUND'))
 
         # copy list top level
         for b in book_list:
@@ -3257,6 +3359,34 @@ The previously downloaded book is still in the anthology, but FFF doesn't have t
         book['anthology_merge_keepsingletocs'] = configuration.getConfig('anthology_merge_keepsingletocs',False)
 
         return book
+
+def run_off_gui_thread(func, *args, **kwargs):
+    '''
+    Run func in a worker thread, pumping the Qt event loop until it
+    finishes so the GUI stays responsive. Exceptions are re-raised in
+    the calling (GUI) thread.
+    Currently only used places it can be protected by modal or progbar dialogs.
+    '''
+    logger.debug("run_off_gui_thread called")
+    result = {}
+    def target():
+        try:
+            result['value'] = func(*args, **kwargs)
+        except BaseException as e:
+            result['error'] = e
+    t = threading.Thread(target=target, daemon=True)
+    t.start()
+
+    loop = QEventLoop()
+    timer = QTimer()
+    timer.timeout.connect(lambda: None if t.is_alive() else loop.quit())
+    timer.start(50)
+    loop.exec_()
+    timer.stop()
+
+    if 'error' in result:
+        raise result['error']
+    return result.get('value')
 
 def split_text_to_urls(urls):
     # remove dups while preserving order.

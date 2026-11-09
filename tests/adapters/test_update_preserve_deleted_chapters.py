@@ -10,16 +10,19 @@ import zipfile
 
 from bs4 import BeautifulSoup
 
+from fanficfare.epubutils import get_fff_chapter_data
 from fanficfare.writers.writer_epub import EpubWriter
 
 from tests.adapters.update_harness import (CH, OLD_URLS, SITE_CHAPTERS,
                                            FakeSiteAdapter, make_adapter,
                                            read_chapters, staged_config,
-                                           staged_download, staged_update)
+                                           staged_download, staged_update,
+                                           strip_chapter_data_meta)
 
 
 def test_preserved_deleted_written_chapters_have_required_keys(tmp_path):
-    adapter = make_adapter(OLD_URLS, SITE_CHAPTERS, tmp_path)
+    adapter = make_adapter(OLD_URLS, SITE_CHAPTERS, tmp_path,
+                           olddata=_legacy_chapter_data())
     adapter.getStory()
 
     urls = [ch['url'] for ch in adapter.story.chapters]
@@ -27,15 +30,16 @@ def test_preserved_deleted_written_chapters_have_required_keys(tmp_path):
 
     # Regression: every chapter dict must carry the keys that
     # Story.getChapters() reads unconditionally (the real-world run
-    # crashed here with KeyError: 'new').
-    for expected_key in ('new', 'number', 'index04', 'index',
-                         'origtitle', 'toctitle'):
+    # crashed here with KeyError: 'mark_new').
+    for expected_key in ('mark_new', 'number', 'index04', 'index',
+                         'origchapter', 'tocchapter'):
         for ch in adapter.story.chapters:
             assert expected_key in ch, (expected_key, ch['url'])
 
 
 def test_update_counters_preserve_no_reupload(tmp_path):
-    adapter = make_adapter(OLD_URLS, SITE_CHAPTERS, tmp_path)
+    adapter = make_adapter(OLD_URLS, SITE_CHAPTERS, tmp_path,
+                           olddata=_legacy_chapter_data())
     adapter.getStory()
 
     # No reupload-detection: the one new chapter is a pure addition.
@@ -44,7 +48,8 @@ def test_update_counters_preserve_no_reupload(tmp_path):
 
 
 def test_getChapters_with_preserved_deleted_chapters(tmp_path):
-    adapter = make_adapter(OLD_URLS, SITE_CHAPTERS, tmp_path)
+    adapter = make_adapter(OLD_URLS, SITE_CHAPTERS, tmp_path,
+                           olddata=_legacy_chapter_data())
     adapter.getStory()
 
     chapters = adapter.story.getChapters(fortoc=True)
@@ -53,7 +58,8 @@ def test_getChapters_with_preserved_deleted_chapters(tmp_path):
 
 
 def test_write_epub_with_preserved_deleted_chapters(tmp_path):
-    adapter = make_adapter(OLD_URLS, SITE_CHAPTERS, tmp_path)
+    adapter = make_adapter(OLD_URLS, SITE_CHAPTERS, tmp_path,
+                           olddata=_legacy_chapter_data())
     adapter.getStory()
 
     writer = EpubWriter(adapter.configuration, adapter)
@@ -79,7 +85,8 @@ def test_preserved_deleted_chapter_images_preserved(tmp_path):
     old_imgs = {img_url: ('OEBPS/images/pic.jpg', b'\xff\xd8fakejpeg')}
 
     adapter = make_adapter(list(old_chapters), SITE_CHAPTERS, tmp_path,
-                           include_images='true', oldimgs=old_imgs)
+                           include_images='true', oldimgs=old_imgs,
+                           olddata=_legacy_chapter_data())
     adapter.oldchaptersmap = {u: BeautifulSoup(html, 'html.parser')
                               for u, html in old_chapters.items()}
     adapter.getStory()
@@ -115,8 +122,8 @@ def test_preserved_deleted_chapter_keeps_title(tmp_path):
     # Regression: a preserved (deleted-from-site) chapter must keep its
     # real title.  epubutils.get_update_data strips the leading
     # fff_chapter_title h3 from the stored soup, so the preserve path
-    # must fall back to the <meta name="chaptertitle"> in
-    # oldchaptersdata instead of the URL slug.  Without the fix the
+    # must use the chapter metadata in oldchaptersdata instead of the
+    # URL slug.  Without the fix the
     # preserved "Chapter 2" would come back as the slug "2".
     config = staged_config(tmp_path)
 
@@ -130,7 +137,8 @@ def test_preserved_deleted_chapter_keeps_title(tmp_path):
         for n in sorted(n for n in zf.namelist()
                         if re.match(r'^OEBPS/file\d+\.xhtml$', n)):
             data = zf.read(n).decode('utf-8')
-            if '<meta name="chapterurl" content="%s"' % (CH % num) in data:
+            soup = BeautifulSoup(data, 'html.parser')
+            if get_fff_chapter_data(soup).get('url') == CH % num:
                 return data
         return None
 
@@ -146,7 +154,7 @@ def test_preserved_deleted_chapter_keeps_title(tmp_path):
     assert body2 is not None, 'deleted chapter was not preserved'
     assert '<h3 class="fff_chapter_title">Chapter 2</h3>' in body2, \
         'preserved chapter title was slug-ified'
-    assert '<meta name="chaptertitle" content="Chapter 2" />' in body2
+    assert get_fff_chapter_data(BeautifulSoup(body2, 'html.parser'))['chapter'] == 'Chapter 2'
 
 
 def test_staged_update_flow(tmp_path):
@@ -412,3 +420,80 @@ def test_staged_update_flow_mixed_deletions_3(tmp_path):
         [(n, 'NEW1') for n in range(21, 31)] + \
         [(n, 'NEW2') for n in range(31, 41)] + \
         [(n, 'NEW3') for n in range(41, 44)]
+
+
+def _legacy_chapter_data():
+    """oldchaptersdata as get_update_data() builds it for an epub written
+    before 4.62.13: the per-field chaptertitle/chapterorigtitle metas are
+    read into the map, but there is no fff_chapter_data, so no 'url' and
+    no 'chapter' key."""
+    return {url: {'origchapter': 'Chapter %d' % n,
+                  'title': 'Chapter %d' % n}
+            for n, url in enumerate(OLD_URLS, start=1)}
+
+
+def test_legacy_epub_preserved_chapter_survives_next_update(tmp_path):
+    """A book last written before 4.62.13 (no fff_chapter_data meta) must
+    keep its preserved chapter, and keep it on the following update too.
+
+    Without the url fallback the preserved chapter is written with
+    chapterurl="", so get_update_data() can't resolve a url for it on the
+    next update and its text is dropped -- losing exactly the content
+    this feature exists to keep.
+    """
+    config = staged_config(tmp_path)
+    initial = strip_chapter_data_meta(
+        staged_download(config, _site((range(1, 6), 'INIT'))))
+
+    zf = zipfile.ZipFile(io.BytesIO(initial))
+    assert not any(b'fff_chapter_data' in zf.read(n)
+                   for n in zf.namelist() if n.endswith('.xhtml')), \
+        'fixture still carries fff_chapter_data'
+
+    # site deletes ch5 and adds ch6.
+    s1 = _site((range(1, 5), 'INIT'), ([6], 'NEW1'))
+    first = staged_update(config, initial, s1)
+    assert [u for u, _ in read_chapters(first)] == \
+        [CH % n for n in range(1, 7)], 'preserved chapter lost its url'
+
+    # nothing changes on the site the second time round.
+    second = staged_update(config, first, s1)
+    texts = dict(read_chapters(second))
+    assert [u for u, _ in read_chapters(second)] == \
+        [CH % n for n in range(1, 7)], 'preserved chapter dropped entirely'
+    assert 'chapter 5' in texts[CH % 5]
+
+
+def test_legacy_epub_with_old_metas_keeps_chapter_data(tmp_path):
+    """Same shape as the three long-standing preserve tests, but with
+    oldchaptersdata populated the way a real pre-4.62.13 epub reads
+    back: title/origtitle present, url absent."""
+    adapter = make_adapter(OLD_URLS, SITE_CHAPTERS, tmp_path,
+                           olddata=_legacy_chapter_data())
+    adapter.getStory()
+
+    assert [ch['url'] for ch in adapter.story.chapters] == \
+        OLD_URLS + ['http://example.com/story/ch/6']
+    assert adapter.story.chapter_added_count == 1
+    assert adapter.story.chapter_written_count == 6
+
+
+def test_legacy_preserve_with_mark_new_chapters_does_not_crash(tmp_path):
+    """mark_new_chapters:true on a legacy epub must not raise.
+
+    The mark_new fallback compared old_data['origchapter'] to
+    old_data['chapter']; a pre-4.62.13 epub has no 'chapter' key.
+    """
+    adapter = make_adapter(OLD_URLS, SITE_CHAPTERS, tmp_path,
+                           olddata=_legacy_chapter_data(),
+                           mark_new='true')
+    adapter.getStory()
+
+    assert [ch['url'] for ch in adapter.story.chapters] == \
+        OLD_URLS + ['http://example.com/story/ch/6']
+    # preserved chapters are never new
+    assert [ch['mark_new'] for ch in adapter.story.chapters] == \
+        [False] * len(OLD_URLS) + [True]
+
+
+

@@ -13,7 +13,7 @@ from bs4 import BeautifulSoup
 
 from fanficfare.adapters.base_adapter import BaseSiteAdapter
 from fanficfare.configurable import Configuration
-from fanficfare.epubutils import get_update_data
+from fanficfare.epubutils import get_fff_chapter_data, get_update_data
 from fanficfare.htmlcleanup import stripHTML
 from fanficfare.writers.writer_epub import EpubWriter
 
@@ -66,7 +66,7 @@ class StagedSiteAdapter(FakeSiteAdapter):
 
 
 def make_adapter(old_urls, site_chapters, tmp_path, include_images='false',
-                 oldimgs=None):
+                 oldimgs=None, olddata=None, mark_new='false'):
     configuration = Configuration(['example.com'], "EPUB", lightweight=True)
     configuration.read(os.path.join(
         os.path.dirname(__file__), '..', '..', 'fanficfare', 'defaults.ini'))
@@ -75,7 +75,8 @@ def make_adapter(old_urls, site_chapters, tmp_path, include_images='false',
         '[defaults]\n'
         'update_preserve_deleted_chapters:true\n'
         'update_check_recent_chapters:0\n'
-        'include_images:%s\n' % (include_images))
+        'mark_new_chapters:%s\n'
+        'include_images:%s\n' % (mark_new, include_images))
     configuration.read(str(personal))
 
     adapter = FakeSiteAdapter(
@@ -86,7 +87,11 @@ def make_adapter(old_urls, site_chapters, tmp_path, include_images='false',
         adapter.oldchaptersmap[old_url] = BeautifulSoup(
             '<h3>%s</h3><p>old body %s</p>' % (old_url, old_url),
             'html.parser')
-    adapter.oldchaptersdata = None
+    # olddata: optional {url: {...}} shaped like the datamaps a real
+    # epubutils.get_update_data() read-back builds.  None means no chapter
+    # data at all, which is what the read-back yields for an epub with
+    # neither fff_chapter_data nor the per-field chaptertitle metas.
+    adapter.oldchaptersdata = olddata
     adapter.oldimgs = oldimgs
     return adapter
 
@@ -155,6 +160,39 @@ def read_chapters(epub_bytes):
     for n in sorted(n for n in zf.namelist()
                     if re.match(r'^OEBPS/file\d+\.xhtml$', n)):
         soup = BeautifulSoup(zf.read(n).decode('utf-8'), 'html.parser')
-        url = soup.find('meta', attrs={'name': 'chapterurl'})['content']
+        url = get_fff_chapter_data(soup).get('url')
+        if not url:
+            url = soup.find('meta', attrs={'name': 'chapterurl'})['content']
         out.append((url, stripHTML(soup.find('body'))))
     return out
+
+
+def strip_chapter_data_meta(epub_bytes):
+    """epub_bytes with the fff_chapter_data meta tag removed from every
+    chapter, modelling a book last written before 4.62.13.
+
+    Restore the old per-field tags before removing the JSON tag, so the
+    result models a real pre-4.62.13 epub even when the current writer
+    no longer emits those tags.
+    """
+    src = zipfile.ZipFile(io.BytesIO(epub_bytes))
+    out = io.BytesIO()
+    with zipfile.ZipFile(out, 'w', zipfile.ZIP_DEFLATED) as dst:
+        for info in src.infolist():
+            data = src.read(info.filename)
+            if info.filename.endswith('.xhtml'):
+                soup = BeautifulSoup(data.decode('utf-8'), 'html.parser')
+                chapter_data = get_fff_chapter_data(soup)
+                if chapter_data:
+                    for name, key in (('chapterurl', 'url'),
+                                      ('chapterorigtitle', 'origchapter'),
+                                      ('chaptertoctitle', 'tocchapter'),
+                                      ('chaptertitle', 'chapter')):
+                        if not soup.find('meta', attrs={'name': name}):
+                            tag = soup.new_tag('meta', attrs={
+                                'name': name, 'content': chapter_data[key]})
+                            soup.head.append(tag)
+                    soup.find('meta', attrs={'name': 'fff_chapter_data'}).decompose()
+                    data = str(soup).encode('utf-8')
+            dst.writestr(info, data)
+    return out.getvalue()

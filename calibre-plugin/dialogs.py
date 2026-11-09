@@ -50,7 +50,7 @@ from calibre_plugins.fanficfare_plugin.common_utils import (
     SizePersistedDialog, EditableTableWidgetItem,
     ImageTitleLayout, get_icon)
 
-from fanficfare.geturls import get_urls_from_mime
+from fanficfare.geturls import GetURLs
 from fanficfare.adapters import getNormalStoryURL
 
 from fanficfare.configurable import (
@@ -164,7 +164,7 @@ class DroppableQTextEdit(QTextEdit):
 
     def dropEvent(self,event):
         # logger.debug("dropEvent")
-        urllist = get_urls_from_mime(event.mimeData())
+        urllist = GetURLs().get_urls_from_mime(event.mimeData())
         if urllist:
             self.append("\n".join(urllist))
             return None
@@ -175,7 +175,7 @@ class DroppableQTextEdit(QTextEdit):
         # logger.debug(mime_data)
         urllist = None
         if mime_data.hasFormat('text/html'):
-            urllist = get_urls_from_mime(mime_data)
+            urllist = GetURLs().get_urls_from_mime(mime_data)
             # logger.debug(urllist)
         if urllist:
             [ self.append(url) for url in urllist ]
@@ -806,6 +806,7 @@ def LoopProgressDialog(gui,
     # reflect old behavior.
     if not ld.wasCanceled():
         finish_function(book_list)
+    return ld
 
 class _LoopProgressDialog(QProgressDialog):
     '''
@@ -875,7 +876,7 @@ class _LoopProgressDialog(QProgressDialog):
         try:
             ## collision spec passed into getadapter by partial from fff_plugin
             ## no retval only if it exists, but collision is SKIP
-            self.foreach_function(book)
+            self.foreach_function(book,quit_fn=self.wasCanceled)
 
         except NotGoingToDownload as d:
             book['status']=_('Skipped')
@@ -931,6 +932,73 @@ def time_duration_format(seconds):
         return _('less than 1 second')
     else:
         return ', '.join(strings)
+
+def ModalDialog(*args, **kwargs):
+    md = _ModalDialog(*args, **kwargs)
+
+    # Mac OS X gets upset if the finish_function is called from inside
+    # the real _ModalDialog class.
+    md.finish_function(md.retval)
+
+class _ModalDialog(QDialog):
+    '''
+    Similar to _LoopProgressDialog, but without status.
+    run func in background thread so gui thread is 'active', but keep
+    modal for safety.
+    '''
+    def __init__(self,
+                 gui,
+                 do_function,
+                 finish_function,
+                 icon,
+                 label,
+                 text):
+        QDialog.__init__(self, gui)
+        self.gui = gui
+        self.do_function = do_function
+        self.finish_function = finish_function
+        self.retval = None
+
+        self.setWindowTitle('FanFicFare - ' + label)
+        self.l = QHBoxLayout()
+        self.setLayout(self.l)
+        self.logo = QLabel()
+        self.logo.setMaximumWidth(110)
+        self.logo.setPixmap(QPixmap(icon.pixmap(100,100)))
+        self.label = QLabel(text)
+        # self.label.setOpenExternalLinks(True)
+        # self.label.setWordWrap(True)
+        self.l.addWidget(self.logo)
+        self.l.addWidget(self.label)
+
+        # don't allow escape or X close
+        self.reject = self.disabled_reject
+        self.closeEvent = self.disabled_closeEvent
+
+        ## self.do_loop does QTimer.singleShot on self.do_loop also.
+        ## A weird way to do a loop, but that was the example I had.
+        ## 100 instead of 0 on the first go due to Win10(and later
+        ## qt6) not displaying dialog properly.
+        QTimer.singleShot(100, self.do_it)
+        self.exec_()
+
+        return
+
+    def do_it(self):
+        try:
+            # logger.debug("do_it 1")
+            self.retval = self.do_function()
+            # logger.debug("do_it 2")
+            # logger.debug(self.retval)
+        finally:
+            self.hide()
+
+    def disabled_reject(self):
+        pass
+
+    def disabled_closeEvent(self, event):
+        if event.spontaneous():
+            event.ignore()
 
 class AboutDialog(QDialog):
 
