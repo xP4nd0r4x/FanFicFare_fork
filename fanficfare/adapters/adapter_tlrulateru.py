@@ -253,22 +253,35 @@ class TLRulateRuAdapter(BaseSiteAdapter):
 
         # Get chapter list
         chapters = []
-        for row in soup.select("#Chapters .chapter_row"):
-            # Проверяем наличие кнопки "читать"
-            read_btn = row.select_one("td>a.btn")
-            if not read_btn or read_btn.get_text().strip() != "читать":
-                continue
-                
-            title_el = row.select_one("td.t a")
-            if title_el:
-                chapter_url = title_el['href']
-                if not chapter_url.startswith('http'):
-                    chapter_url = 'https://' + self.getSiteDomain() + chapter_url
-                chapter_title = title_el.get_text().strip()
-                chapters.append((chapter_title, chapter_url))
+        chapter_pages = {1}
+        for link in soup.select('a[href]'):
+            query = urllib.parse.urlparse(link['href']).query
+            for page in urllib.parse.parse_qs(query).get('Chapter_page', []):
+                if page.isdigit():
+                    chapter_pages.add(int(page))
 
-        # Sort chapters
-        if soup.select_one("input[name=C_sortChapters][value='0']"):
+        chapter_soups = [soup]
+        for page in range(2, max(chapter_pages) + 1):
+            page_url = '%s?Chapter_page=%d' % (self.url, page)
+            chapter_soups.append(self.make_soup(self.get_request(page_url)))
+
+        reverse_chapters = bool(soup.select_one("input[name=C_sortChapters][value='0']"))
+        for chapter_soup in chapter_soups:
+            for row in chapter_soup.select("#Chapters .chapter_row"):
+                # Проверяем наличие кнопки "читать"
+                read_btn = row.select_one("td>a.btn")
+                if not read_btn or read_btn.get_text().strip() != "читать":
+                    continue
+
+                title_el = row.select_one("td.t a")
+                if title_el:
+                    chapter_url = title_el['href']
+                    if not chapter_url.startswith('http'):
+                        chapter_url = 'https://' + self.getSiteDomain() + chapter_url
+                    chapter_title = title_el.get_text().strip()
+                    chapters.append((chapter_title, chapter_url))
+
+        if reverse_chapters:
             chapters.reverse()
 
         for title, url in chapters:
