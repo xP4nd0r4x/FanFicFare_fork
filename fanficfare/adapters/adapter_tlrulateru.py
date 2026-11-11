@@ -77,7 +77,7 @@ class TLRulateRuAdapter(BaseSiteAdapter):
 
     def extractChapterUrlsAndMetadata(self):
         # Проверяем авторизацию перед извлечением данных
-        if self.has_login_credentials() and not self.is_logged_in():
+        if self.has_login_credentials() and not self._is_logged_in:
             logger.debug("Not logged in; attempting authentication")
             if not self.login():
                 raise Exception("Failed to login to tl.rulate.ru")
@@ -302,7 +302,8 @@ class TLRulateRuAdapter(BaseSiteAdapter):
                     raise Exception('Chapter content not found!')
         
         # Remove link at the end of chapter if present
-        last_p = chapter.find_all('p')[-1] if chapter.find_all('p') else None
+        paragraphs = chapter.find_all('p')
+        last_p = paragraphs[-1] if paragraphs else None
         if last_p and self.getSiteDomain() in last_p.get_text():
             last_p.decompose()
             
@@ -348,6 +349,9 @@ class TLRulateRuAdapter(BaseSiteAdapter):
         retryable = method.upper() in ('GET', 'HEAD')
         max_attempts = 3 if retryable else 1
         for attempt in range(max_attempts):
+            self._total_requests += 1
+            logger.debug("%s request #%d to %s",
+                         method.upper(), self._total_requests, url)
             response = self._session.request(method, url, **kwargs)
             if response.status_code != 429:
                 break
@@ -378,17 +382,11 @@ class TLRulateRuAdapter(BaseSiteAdapter):
 
     def get_request(self, url, **kwargs):
         """Перехватываем все запросы для подсчета и используем сессию"""
-        self._total_requests += 1
-        logger.debug("GET request #%d to %s", self._total_requests, url)
-
         response = self._request_with_retries('GET', url, **kwargs)
         return response.text  # Возвращаем текст вместо content
 
     def post_request(self, url, data, **kwargs):
         """Перехватываем все POST запросы для подсчета и используем сессию"""
-        self._total_requests += 1
-        logger.debug("POST request #%d to %s", self._total_requests, url)
-        
         response = self._request_with_retries('POST', url, data=data, **kwargs)
         return response.text  # Возвращаем текст вместо content
 
@@ -405,6 +403,11 @@ class TLRulateRuAdapter(BaseSiteAdapter):
         login_page_url = 'https://' + self.getSiteDomain() + '/'
         initial_response = self._request_with_retries('GET', login_page_url)
         soup = self.make_soup(initial_response.text)
+
+        if not soup.select_one('#header-login'):
+            logger.debug("Already authenticated with tl.rulate.ru")
+            self._is_logged_in = True
+            return True
         
         # Ищем скрытое поле с CSRF-токеном
         csrf_meta = soup.find('meta', {'name': 'csrf-token'})

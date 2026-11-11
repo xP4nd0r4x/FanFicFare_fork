@@ -44,6 +44,23 @@ def test_login_status_checks_site_homepage():
     get_request.assert_called_once_with(login_page_url)
 
 
+def test_extract_checks_login_and_authenticates_with_one_homepage_request():
+    story_url = 'https://tl.rulate.ru/book/123'
+    configuration = Configuration(['tl.rulate.ru'], 'EPUB', lightweight=True)
+    adapter = TLRulateRuAdapter(configuration, story_url)
+    homepage = Mock(status_code=200, headers={}, text='<html><body>Logged in</body></html>')
+
+    with patch.object(adapter, 'has_login_credentials', return_value=True):
+        with patch.object(adapter, 'is_logged_in', side_effect=AssertionError):
+            with patch.object(adapter, 'get_request', return_value='<h1>Book</h1>'):
+                with patch.object(adapter._session, 'request', return_value=homepage) as request:
+                    adapter.extractChapterUrlsAndMetadata()
+
+    request.assert_called_once_with('GET', 'https://tl.rulate.ru/', timeout=(10, 30))
+    assert adapter._is_logged_in is True
+    assert adapter._total_requests == 1
+
+
 def test_get_retries_429_using_http_date():
     story_url = 'https://tl.rulate.ru/book/123'
     configuration = Configuration(['tl.rulate.ru'], 'EPUB', lightweight=True)
@@ -57,6 +74,7 @@ def test_get_retries_429_using_http_date():
             assert adapter.get_request(story_url) == success.text
 
     assert request.call_count == 2
+    assert adapter._total_requests == 2
     delay = sleep.call_args.args[0]
     assert 0 < delay <= 15
 

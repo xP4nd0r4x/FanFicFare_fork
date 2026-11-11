@@ -28,3 +28,20 @@ def test_gallery_uses_story_image_path_and_omits_none_caption():
     assert 'alt=""' in html
     assert '>None<' not in html
     assert 'ffdl-0.jpg' not in html
+
+
+def test_gallery_chapter_is_built_only_when_requested():
+    class LazyGalleryAdapter:
+        gallery_images = [{'url': 'https://cm.author.today/image.png'}]
+        getChapterText = AuthorTodayAdapter.getChapterText
+
+        def make_gallery_chapter(self, gallery_images):
+            self.build_count = getattr(self, 'build_count', 0) + 1
+            return '<div>gallery</div>'
+
+    adapter = LazyGalleryAdapter()
+
+    assert adapter.getChapterText('https://author.today/work/42#gallery') == '<div>gallery</div>'
+    assert adapter.build_count == 1
+    assert adapter.getChapterText('https://author.today/work/42#gallery') == '<div>gallery</div>'
+    assert adapter.build_count == 1

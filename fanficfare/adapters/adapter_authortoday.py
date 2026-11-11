@@ -9,18 +9,14 @@ import time
 from html import escape
 from datetime import datetime
 
-import concurrent
-
 # Third-party imports
-global requests, BeautifulSoup, ThreadPoolExecutor
+global requests, BeautifulSoup
 try:
     import requests
     from bs4 import BeautifulSoup
-    from concurrent.futures import ThreadPoolExecutor
 except ImportError as e:
     requests = None
     BeautifulSoup = None
-    ThreadPoolExecutor = None
     import traceback
     logging.getLogger(__name__).error("Failed to import required modules: %s\n%s", 
                                      str(e), traceback.format_exc())
@@ -85,14 +81,6 @@ class AuthorTodayAdapter(BaseSiteAdapter):
             'Sec-Fetch-User': '?1',
             'Cache-Control': 'max-age=0'
         })
-        
-        # Check if PIL/Pillow is available
-        try:
-            from PIL import Image
-            self.has_pil = True
-        except ImportError:
-            self.has_pil = False
-
         
         # Extract story ID from URL
         m = re.match(self.getSiteURLPattern(), url)
@@ -164,6 +152,10 @@ class AuthorTodayAdapter(BaseSiteAdapter):
 
     def use_pagecache(self):
         return True
+
+    def doExtractChapterUrlsAndMetadata(self, get_cover=True):
+        self._get_cover = get_cover
+        return self.extractChapterUrlsAndMetadata()
 
     def performLogin(self, url, data=None):
         """
@@ -395,131 +387,6 @@ class AuthorTodayAdapter(BaseSiteAdapter):
             logger.exception("Error decrypting chapter text")
             raise
         
-    def extract_tags(self, soup):
-        """
-        Извлечь теги, используя API author.today.
-        Возвращает список тегов из API, включая метку 18+ если AdultOnly=true.
-        """
-        try:
-            logger.debug("extract_tags called. Checking login status...")
-            # Attempt to log in if not already logged in or token expired
-            if not self.checkLogin(self.url):
-                logger.debug("Not logged in or token expired in extract_tags. Performing login...")
-                self.performLogin(self.url)
-            
-            # Получаем ID книги из URL
-            story_id = self.story.getMetadata('storyId')
-            logger.debug(f"Extracting tags for story ID: {story_id}")
-            
-            # Формируем URL для API запроса
-            api_url = f'https://api.author.today/v1/work/{story_id}/details'
-            
-            # More robust token handling
-            if not self.bearer_token:
-                logger.warning("Bearer token still not found after login attempt in extract_tags. Falling back to HTML parsing.")
-                return self._extract_tags_from_html(soup)
-
-            # Делаем запрос к API
-            headers = {
-                'Authorization': f'Bearer {self.bearer_token}'
-            }
-            
-            response = self.session.get(api_url, headers=headers, timeout=REQUEST_TIMEOUT)
-            response.raise_for_status()
-            
-            data = response.json()
-            logger.debug(f"API Response: {data}")  # Добавляем лог ответа API
-            
-            tags = []
-            
-            # Получаем теги из API
-            if 'tags' in data:
-                tags.extend(tag.strip() for tag in data['tags'] if tag.strip())
-                logger.debug(f"Tags from API: {tags}")
-            else:
-                logger.warning("No 'tags' field found in API response")
-                
-            # Добавляем жанры, если они есть
-            if 'genreId' in data and data['genreId']:
-                genre = self._get_genre_name(data['genreId'])
-                if genre:
-                    tags.append(genre)
-                    
-            if 'firstSubGenreId' in data and data['firstSubGenreId']:
-                subgenre = self._get_genre_name(data['firstSubGenreId'])
-                if subgenre:
-                    tags.append(subgenre)
-                    
-            if 'secondSubGenreId' in data and data['secondSubGenreId']:
-                subgenre2 = self._get_genre_name(data['secondSubGenreId'])
-                if subgenre2:
-                    tags.append(subgenre2)
-                    
-            # Добавляем метку 18+ если контент для взрослых
-            if data.get('adultOnly', False):
-                tags.append("18+")
-                
-            # Добавляем дополнительные метки из поля marks, если они есть
-            if 'marks' in data and data['marks']:
-                for mark_id in data['marks']:
-                    mark_name = self._get_mark_name(mark_id)
-                    if mark_name:
-                        tags.append(mark_name)
-                        
-            logger.debug(f"Final tags list: {tags}")
-            
-            if not tags:  # Если теги не найдены через API
-                logger.warning("No tags found via API, falling back to HTML parsing")
-                return self._extract_tags_from_html(soup)
-                
-            return list(dict.fromkeys(tags))  # Удаляем дубликаты, сохраняя порядок
-            
-        except Exception as e:
-            logger.error(f"Error fetching tags from API: {str(e)}")
-            return self._extract_tags_from_html(soup)
-
-    # def _extract_tags_from_html(self, soup):
-    #     """Резервный метод извлечения тегов из HTML при ошибке API"""
-    #     tags = []
-        
-    #     # Извлечение жанров
-    #     genres_div = soup.find('div', {'class': 'book-genres'})
-    #     if genres_div:
-    #         for genre in genres_div.find_all('a'):
-    #             tag_text = genre.get_text().strip()
-    #             if tag_text and tag_text not in tags:
-    #                 tags.append(tag_text)
-    
-    #     # Извлечение тегов из спанов с классом 'tags'
-    #     tags_spans = soup.find_all('span', {'class': 'tags'})
-    #     for span in tags_spans:
-    #         for tag in span.find_all('a'):
-    #             tag_text = tag.get_text().strip()
-    #             if tag_text and tag_text not in tags:
-    #                 tags.append(tag_text)
-    
-    #     # Проверка на наличие метки 18+
-    #     adult_label = soup.select_one('div.book-stats span.label-adult-only')
-    #     if adult_label:
-    #         tags.append("18+")
-    
-    #     # Извлечение дополнительных тегов
-    #     additional_selectors = [
-    #         'div.book-tags span',
-    #         'div.book-tags a',
-    #         'div.tags-container a',
-    #         'div.book-meta-tags a'
-    #     ]
-        
-    #     for selector in additional_selectors:
-    #         for element in soup.select(selector):
-    #             tag_text = element.get_text().strip()
-    #             if tag_text and not any(skip in tag_text.lower() for skip in ['глав', 'страниц', 'знак']):
-    #                 if tag_text not in tags:
-    #                     tags.append(tag_text)
-    
-    #     return tags
-
     def extractChapterUrlsAndMetadata(self):
         try:
             logger.debug("extractChapterUrlsAndMetadata called. Checking login status...")
@@ -530,37 +397,6 @@ class AuthorTodayAdapter(BaseSiteAdapter):
  
             # Получаем ID книги из URL
             story_id = self.story.getMetadata('storyId')
-            
-            # Получаем изображения галереи через основной API запрос
-            if story_id:
-                api_url = f'https://api.author.today/v1/work/{story_id}/details'
-                try:
-                    headers = {
-                        'Authorization': f'Bearer {self.bearer_token}',
-                        'Accept': 'application/json'
-                    }
-                    
-                    response = self.session.get(api_url, headers=headers, timeout=REQUEST_TIMEOUT)
-                    response.raise_for_status()
-                    data = response.json()
-                    
-                    if data.get('galleryImages'):
-                        for img_data in data['galleryImages']:
-                            if 'url' in img_data:
-                                img_url = img_data['url']
-                                caption = img_data.get('caption', '')
-                                
-                                # Добавляем изображение в историю
-                                self.story.addImgUrl(
-                                    parenturl=self.url,
-                                    url=img_url,
-                                    cover=False,
-                                    fetch=self.get_request_raw
-                                )
-                                logger.debug(f"Added gallery image: {img_url} ({caption})")
-                except Exception as e:
-                    logger.warning(f"Failed to fetch gallery images: {e}")
-                    logger.debug(f"API response: {response.text if 'response' in locals() else 'No response'}")
 
             # More robust token handling
             if not self.bearer_token:
@@ -592,45 +428,11 @@ class AuthorTodayAdapter(BaseSiteAdapter):
             self.story.setMetadata('title', data.get('title', ''))
             
             # Обложка
-            if data.get('coverUrl'):
+            if getattr(self, '_get_cover', True) and data.get('coverUrl'):
                 cover_url = data['coverUrl']
                 if not cover_url.startswith('http'):
                     cover_url = 'https://' + self.getSiteDomain() + cover_url
-                
-                try:
-                    if self.has_pil:
-                        # Оптимизация изображения с PIL
-                        import io
-                        import tempfile
-                        import os
-                        from PIL import Image
-                        
-                        response = self.session.get(cover_url, timeout=REQUEST_TIMEOUT)
-                        img = Image.open(io.BytesIO(response.content))
-                        
-                        # Оптимизация размера
-                        max_size = (1200, 1800)
-                        if img.size[0] > max_size[0] or img.size[1] > max_size[1]:
-                            img.thumbnail(max_size, Image.Resampling.LANCZOS)
-                        
-                        # Сохранение во временный файл
-                        with tempfile.NamedTemporaryFile(delete=False, suffix='.'+img.format.lower() if img.format else '.jpg') as tmp_file:
-                            img.save(tmp_file, format=img.format or 'JPEG', quality=85, optimize=True)
-                            tmp_file_path = tmp_file.name
-                        
-                        # URL для временного файла
-                        tmp_url = 'file:///' + tmp_file_path.replace('\\', '/')
-                        self.setCoverImage(self.url, tmp_url)
-                        
-                        # Очистка временного файла
-                        try:
-                            os.unlink(tmp_file_path)
-                        except:
-                            pass
-                    else:
-                        self.setCoverImage(self.url, cover_url)
-                except Exception as e:
-                    logger.warning(f"Failed to set cover image: {e}")
+                self.setCoverImage(self.url, cover_url)
 
             # Теги и жанры
             tags = data.get('tags', [])
@@ -709,15 +511,8 @@ class AuthorTodayAdapter(BaseSiteAdapter):
                     # Сохраняем изображения галереи для возможного обновления
                     self.gallery_images = gallery_images
                     
-                    # Создаем специальную главу для галереи
+                    # Download gallery images only when the gallery chapter is fetched.
                     gallery_chapter_title = "Доп. материалы"
-                    logger.debug(f"Creating gallery chapter with {len(gallery_images)} images")
-                    
-                    # Создаем HTML контент для галереи
-                    gallery_html = self.make_gallery_chapter(gallery_images)
-                    self.chapter_gallery_content = gallery_html
-                    
-                    # Добавляем главу галереи последней с специальным URL
                     gallery_url = f"{self.url}#gallery"
                     self.add_chapter(gallery_chapter_title, gallery_url)
                     logger.debug("Added gallery chapter")
@@ -738,209 +533,6 @@ class AuthorTodayAdapter(BaseSiteAdapter):
         except Exception as e:
             logger.error("Error in extractChapterUrlsAndMetadata: %s", e)
             raise
-
-    # def _extractChapterUrlsAndMetadata_html(self):
-    #     """Резервный метод извлечения метаданных из HTML при ошибке API"""
-    #     url = self.url
-    #     logger.debug("URL: "+url)
-
-    #     data = self.get_request(url)
-    #     soup = self.make_soup(data)
-
-    #     # Check if story exists
-    #     if "Произведение не найдено" in data:
-    #         raise exceptions.StoryDoesNotExist(self.url)
-
-    #     # Check for adult content
-    #     if "Произведение имеет метку 18+" in data and not self.is_adult:
-    #         raise exceptions.AdultCheckRequired(self.url)
-
-    #     # Extract metadata
-    #     title = soup.find('h1', {'class': 'book-title'})
-    #     self.story.setMetadata('title', title.get_text().strip() if title else '')
-
-    #     # Extract cover image
-    #     get_cover = True
-    #     if get_cover:
-    #         # Try to get cover image similar to FicBook's implementation
-    #         cover_url = None
-            
-    #         # Try meta tag first (highest quality usually)
-    #         meta_cover = soup.find('meta', {'property':'og:image'})
-    #         if meta_cover:
-    #             cover_url = meta_cover.get('content')
-            
-    #         # Fallback to direct image elements if meta tag not found
-    #         if not cover_url:
-    #             cover_selectors = [
-    #                 ('img', {'class': 'cover-image'}),
-    #                 ('img', {'class': 'book-cover-img'}),
-    #                 ('img', {'class': 'book-cover'}),
-    #                 ('div.book-cover img', {})
-    #             ]
-                
-    #             for tag, attrs in cover_selectors:
-    #                 if '.' in tag:
-    #                     # Handle CSS selector style
-    #                     img = soup.select_one(tag)
-    #                 else:
-    #                     img = soup.find(tag, attrs)
-    #                 if img and img.get('src'):
-    #                     cover_url = img['src']
-    #                     break
-            
-    #         if cover_url:
-    #             # Remove size parameters from URL
-    #             cover_url = re.sub(r'\?(?:width|height|size)=\d+', '', cover_url)
-                
-    #             # Ensure absolute URL
-    #             if not cover_url.startswith('http'):
-    #                 cover_url = 'https://' + self.getSiteDomain() + cover_url
-                
-    #             # Run test before actual processing
-    #             logger.debug("Testing cover image handling...")
-    #             test_results = self.test_cover_handling(cover_url)
-                
-    #             try:
-    #                 if self.has_pil:
-    #                     # Download image and optimize with PIL
-    #                     import io
-    #                     import tempfile
-    #                     import os
-    #                     from PIL import Image
-    #                     import requests
-                        
-    #                     response = requests.get(cover_url)
-    #                     img = Image.open(io.BytesIO(response.content))
-                        
-    #                     # Optimize size if too large
-    #                     max_size = (1200, 1800)  # Maximum dimensions
-    #                     if img.size[0] > max_size[0] or img.size[1] > max_size[1]:
-    #                         img.thumbnail(max_size, Image.Resampling.LANCZOS)
-                        
-    #                     # Save optimized image to temporary file
-    #                     with tempfile.NamedTemporaryFile(delete=False, suffix='.'+img.format.lower() if img.format else '.jpg') as tmp_file:
-    #                         img.save(tmp_file, format=img.format or 'JPEG', quality=85, optimize=True)
-    #                         tmp_file_path = tmp_file.name
-                        
-    #                     # Create a local URL for the temporary file
-    #                     tmp_url = 'file:///' + tmp_file_path.replace('\\', '/')
-                        
-    #                     # Set the optimized cover
-    #                     self.setCoverImage(self.url, tmp_url)
-    #                     logger.debug("Cover image optimized and set successfully: %s" % cover_url)
-                        
-    #                     # Clean up the temporary file
-    #                     try:
-    #                         os.unlink(tmp_file_path)
-    #                     except:
-    #                         pass
-    #                 else:
-    #                     # Set cover directly without optimization
-    #                     self.setCoverImage(self.url, cover_url)
-    #                     logger.debug("Cover image set without optimization: %s" % cover_url)
-    #             except Exception as e:
-    #                 logger.warning("Failed to set cover image: %s" % e)
-
-    #     # Extract and set tags
-    #     tags = self.extract_tags(soup)
-    #     if tags:
-    #         # Set tags as genre
-    #         for tag in tags:
-    #             self.story.addToList('genre', tag)
-                
-    #         # Set tags as tags
-    #         for tag in tags:
-    #             self.story.addToList('tags', tag)
-                
-    #         # Also set as subject tags
-    #         for tag in tags:
-    #             self.story.addToList('subject', tag)
-
-    #         logger.debug(f"Added tags: {', '.join(tags)}")
-            
-    #     # Log current metadata for debugging
-    #     logger.debug(f"Current genres: {self.story.getList('genre')}")
-    #     logger.debug(f"Current tags: {self.story.getList('tags')}")
-    #     logger.debug(f"Current subjects: {self.story.getList('subject')}")
-
-    #     author = soup.find('span', {'itemprop': 'author'})
-    #     if author:
-    #         author_name = author.find('meta', {'itemprop': 'name'})['content']
-    #         author_link = author.find('a')
-    #         self.story.setMetadata('author', author_name)
-    #         if author_link:
-    #             self.story.setMetadata('authorId', author_link['href'].split('/')[-1])
-    #             self.story.setMetadata('authorUrl', 'https://' + self.getSiteDomain() + author_link['href'])
-
-    #     # Get description
-    #     description = soup.find('div', {'class': 'annotation'})
-    #     if description:
-    #         desc_text = description.find('div', {'class': 'rich-content'})
-    #         self.story.setMetadata('description', desc_text.get_text().strip() if desc_text else '')
-
-    #     # Get status
-    #     status_label = soup.find('span', {'class': 'label-primary'})
-    #     if status_label and 'в процессе' in status_label.get_text():
-    #         self.story.setMetadata('status', 'In-Progress')
-    #     else:
-    #         self.story.setMetadata('status', 'Completed')
-
-    #     # Get word count
-    #     word_count = soup.find('span', {'class': 'hint-top'}, text=re.compile(r'.*зн\..*'))
-    #     if word_count:
-    #         count = word_count.get_text().strip().split()[0].replace(' ', '')
-    #         self.story.setMetadata('numWords', count)
-
-    #     # Get publish date
-    #     pub_date = soup.find('span', {'data-format': 'calendar'})
-    #     if pub_date:
-    #         date_str = pub_date.get('data-time', '').split('T')[0]
-    #         if date_str:
-    #             self.story.setMetadata('datePublished', makeDate(date_str, self.dateformat))
-
-    #     # Get update date
-    #     update_date = soup.find('span', {'data-format': 'calendar-short'})
-    #     if update_date:
-    #         date_str = update_date.get('data-time', '').split('T')[0]
-    #         if date_str:
-    #             self.story.setMetadata('dateUpdated', makeDate(date_str, self.dateformat))
-
-    #     # Get chapters
-    #     chapter_list = soup.find('ul', {'class': 'table-of-content'})
-    #     if not chapter_list:
-    #         # No chapters found - might be a single chapter story
-    #         self.add_chapter('Chapter 1', url)
-    #         self.story.setMetadata('numChapters', 1)
-    #         return
-            
-    #     chapters = []
-    #     for chapter in chapter_list.find_all('li'):
-    #         chapter_a = chapter.find('a')
-    #         if not chapter_a:
-    #             continue
-                
-    #         title = chapter_a.get_text().strip()
-    #         chapter_url = 'https://' + self.getSiteDomain() + chapter_a['href']
-            
-    #         # Get chapter date
-    #         date_span = chapter.find('span', {'data-format': 'calendar-xs'})
-    #         date = None
-    #         if date_span:
-    #             date_str = date_span.get('data-time', '').split('T')[0]
-    #             if date_str:
-    #                 date = makeDate(date_str, self.dateformat)
-            
-    #         chapters.append((title, chapter_url, date))
-
-    #     # Set chapter count
-    #     self.story.setMetadata('numChapters', len(chapters))
-
-    #     # Add chapters to story
-    #     for title, chapter_url, date in chapters:
-    #         self.add_chapter(title, chapter_url)
-
-    #     return
 
     def get_request(self, url, **kwargs):
         """
@@ -979,10 +571,12 @@ class AuthorTodayAdapter(BaseSiteAdapter):
         """Get chapter text using Author.Today API"""
         logger.debug('Getting chapter text from: %s' % url)
         
-        # Если это глава галереи (url содержит #gallery)
-        if url and '#gallery' in url and hasattr(self, 'chapter_gallery_content'):
-            logger.debug("Returning gallery chapter content")
-            return self.chapter_gallery_content
+        if url and '#gallery' in url:
+            if not hasattr(self, 'chapter_gallery_content') and getattr(self, 'gallery_images', None):
+                self.chapter_gallery_content = self.make_gallery_chapter(self.gallery_images)
+            if hasattr(self, 'chapter_gallery_content'):
+                logger.debug("Returning gallery chapter content")
+                return self.chapter_gallery_content
         
         self.chapters_processed += 1
         
@@ -1220,242 +814,6 @@ class AuthorTodayAdapter(BaseSiteAdapter):
             logger.error(f"Error downloading image: {e}")
             logger.exception("Full traceback:")
             return None
-
-    def download_images_concurrently(self, urls):
-        images = {}
-        with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:  # Ограничение на количество потоков
-            future_to_url = {executor.submit(self.download_image, url): url for url in urls}
-            for future in concurrent.futures.as_completed(future_to_url):
-                url = future_to_url[future]
-                try:
-                    data = future.result()
-                    if data:
-                        images[url] = data
-                    else:
-                        logger.warning(f"Не удалось загрузить изображение с {url}")
-                except Exception as e:
-                    logger.error(f"Ошибка при обработке зображеня с {url}: {e}")
-        return images
-
-    def test_cover_handling(self, cover_url):
-
-        """
-        Test cover image handling with and without Pillow.
-        Returns tuple: (with_pillow_size, without_pillow_size, with_pillow_format, without_pillow_format)
-        """
-        import requests
-        import tempfile
-        import os
-        import io
-        
-        def get_image_info(img_data):
-            """Helper to get image info without Pillow"""
-            size = len(img_data)
-            # Basic format detection from magic numbers
-            if img_data.startswith(b'\xff\xd8'):
-                fmt = 'JPEG'
-            elif img_data.startswith(b'\x89PNG\r\n\x1a\n'):
-                fmt = 'PNG'
-            else:
-                fmt = 'Unknown'
-            return size, fmt
-        
-        results = {'with_pillow': None, 'without_pillow': None}
-        
-        # Test without Pillow
-        self.has_pil = True
-        try:
-            response = requests.get(cover_url, timeout=REQUEST_TIMEOUT)
-            orig_data = response.content
-            orig_size, orig_format = get_image_info(orig_data)
-            results['without_pillow'] = (orig_size, orig_format)
-            logger.debug(f"Without Pillow - Size: {orig_size} bytes, Format: {orig_format}")
-        except Exception as e:
-            logger.error(f"Error in without-Pillow test: {e}")
-        
-        # Test with Pillow
-        try:
-            from PIL import Image
-            self.has_pil = True
-            
-            response = requests.get(cover_url, timeout=REQUEST_TIMEOUT)
-            img = Image.open(io.BytesIO(response.content))
-            
-            # Optimize size if too large
-            max_size = (1200, 1800)
-            if img.size[0] > max_size[0] or img.size[1] > max_size[1]:
-                img.thumbnail(max_size, Image.Resampling.LANCZOS)
-
-            # Save optimized image to temporary file to measure size
-            with tempfile.NamedTemporaryFile(delete=False, suffix='.'+img.format.lower() if img.format else '.jpg') as tmp_file:
-                img.save(tmp_file, format=img.format or 'JPEG', quality=85, optimize=True)
-                tmp_file_path = tmp_file.name
-            
-            # Get optimized file size
-            opt_size = os.path.getsize(tmp_file_path)
-            opt_format = img.format
-            
-            # Clean up
-            os.unlink(tmp_file_path)
-            
-            results['with_pillow'] = (opt_size, opt_format)
-            logger.debug(f"With Pillow - Size: {opt_size} bytes, Format: {opt_format}")
-            
-            # Print size reduction percentage if original size is known
-            if results['without_pillow']:
-                orig_size = results['without_pillow'][0]
-                reduction = ((orig_size - opt_size) / orig_size) * 100
-                logger.debug(f"Size reduction: {reduction:.1f}%")
-                
-        except ImportError:
-            logger.warning("Pillow not available for testing")
-        except Exception as e:
-            logger.error(f"Error in Pillow test: {e}")
-        
-        return results
-
-    def extract_images(self, soup):
-        """
-        Расширенный метод извлечения изображений с поддержкой галереи
-        """
-        images = []
-        image_sources = []
-        
-        # Получаем ID книги
-        story_id = self.story.getMetadata('storyId')
-        
-        # Получаем изображения галереи через основной API запрос
-        if story_id:
-            api_url = f'https://api.author.today/v1/work/{story_id}/details'
-            try:
-                headers = {
-                    'Authorization': f'Bearer {self.bearer_token}',
-                    'Accept': 'application/json'
-                }
-                
-                response = self.session.get(api_url, headers=headers, timeout=REQUEST_TIMEOUT)
-                response.raise_for_status()
-                data = response.json()
-                
-                if data.get('galleryImages'):
-                    for img_data in data['galleryImages']:
-                        if 'url' in img_data:
-                            img_url = img_data['url']
-                            if img_url not in image_sources:
-                                image_sources.append(img_url)
-                                logger.debug(f"Found gallery image: {img_url} ({img_data.get('caption', '')})")
-            except Exception as e:
-                logger.warning(f"Failed to fetch gallery images: {e}")
-                logger.debug(f"API response: {response.text if 'response' in locals() else 'No response'}")
-
-        # Расширенная диагностика HTML
-        html_content = str(soup)
-        logger.debug(f"HTML длина: {len(html_content)} символов")
-        logger.debug(f"Первые 1000 символов HTML:\n{html_content[:1000]}")
-    
-        # Поиск изображений с максимально широким охватом
-        image_selectors = [
-            # Стандартные теги
-            'img', 
-            # Медиа-контейнеры
-            'picture', 'figure', 
-            # Контейнер с фоновыми изображениями
-            '[style*="background-image"]',
-            # Специфические классы для Author.Today
-            '.story-image', '.content-image', '.post-image'
-        ]
-    
-        # Расширенный поиск изображений
-        for selector in image_selectors:
-            tags = soup.select(selector)
-            logger.debug(f"Найдено тегов по селектору '{selector}': {len(tags)}")
-            
-            for tag in tags:
-                # Извлечение URL из различных атрибутов
-                src_attributes = [
-                    'src', 'data-src', 'data-original', 
-                    'data-image', 'data-url', 
-                    # Для background-image
-                    lambda t: re.search(r'url\([\'"]?([^\'"]+)[\'"]?\)', t.get('style', ''))
-                ]
-    
-                for attr in src_attributes:
-                    if callable(attr):
-                        match = attr(tag)
-                        if match:
-                            src = match.group(1) if hasattr(match, 'group') else match
-                    else:
-                        src = tag.get(attr)
-                    
-                    if src and src not in image_sources:
-                        # Нормализация URL
-                        if not src.startswith('http'):
-                            if src.startswith('//'):
-                                src = 'https:' + src
-                            elif src.startswith('/'):
-                                src = f'https://{self.getSiteDomain()}{src}'
-                            else:
-                                src = f'https://{self.getSiteDomain()}/{src}'
-                        
-                        # Фильтрация и проверка URL
-                        if src.startswith("https://cm.author.today/"):
-                            image_sources.append(src)
-                            logger.debug(f"Найден URL изображения: {src}")
-    
-        # Диагностика найденных источников
-        logger.info(f"Всего найдено уникальных источников изображений: {len(image_sources)}")
-    
-        # Подготовка заголовков
-        headers = {
-            'Accept': 'image/jxl,image/jpeg,image/png,image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8',
-            'Referer': f'https://{self.getSiteDomain()}',
-            'User-Agent': self.getConfig('user_agent', 'FanFicFare/4.x'),
-        }
-
-        # Новый отладочный лог
-        logger.debug("Prepared image request headers (authorization: %s)",
-                 'Authorization' in headers)
-
-        # Добавление Bearer токена
-        if self.bearer_token:
-            headers['Authorization'] = f'Bearer {self.bearer_token}'
-            logger.debug("Добавлен Bearer токен для авторизации")
-    
-        # Загрузка изображений с расширенной диагностикой
-        for img_url in image_sources:
-            try:
-                logger.info(f"Попытка загрузки изображения: {img_url}")
-                
-                # Проверка Bearer токена перед загрузкой
-                if not self.bearer_token:
-                    logger.warning("Отсутствует Bearer токен!")
-    
-                img_data = self.download_image(img_url, headers=headers)
-                
-                if img_data:
-                    images.append(img_data)
-                    logger.info(f"Успешно загружено изображение: {img_url}, размер: {len(img_data)} байт")
-                    
-                    # Добавление в историю с расширенной обработкой
-                    try:
-                        self.story.addImgUrl(
-                            parenturl=self.url, 
-                            url=img_url, 
-                            cover=False,
-                            fetch=self.get_request_raw
-                        )
-                        logger.debug(f"Изображение добавлено в историю: {img_url}")
-                    except Exception as add_error:
-                        logger.error(f"Ошибка при добавлении изображения {img_url}: {add_error}")
-                else:
-                    logger.warning(f"Не удалось загрузить изображение: {img_url}")
-            
-            except Exception as e:
-                logger.error(f"Критическая ошибка при обработке изображения {img_url}: {e}")
-                logger.exception("Полная трассировка ошибки")
-    
-        logger.info(f"Итого загружено изображений: {len(images)}")
-        return images
 
     def make_gallery_chapter(self, gallery_images):
         """Создает HTML-контент для главы с галереей"""
